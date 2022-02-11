@@ -1,0 +1,149 @@
+#!/usr/bin/perl
+#
+# Quick and Dirty restore script for AFS volumes and pdm.
+#
+
+use Getopt::Long;
+
+$showdumps = '/usr/local/pd/bin/showdumps';
+%seq_array = ();
+@restore_seq = ();
+$num_vols = 0;
+@vols = ();
+
+my %opts = (
+	'h=s' => sub {
+			$host = @_[1];
+		},
+	'v=s' => sub {
+			$restore_volume =  @_[1];
+		},
+	'd=s' => sub {
+			$dest = @_[1];
+		},
+	'b=s' => sub {
+			$before = @_[1];
+		}
+);
+
+GetOptions(%opts) or die "Usage: restorevol -h host [ -v volume ]\n";
+
+if ($before) {
+	$showdump_args = "-b $before";
+}
+
+open(SHOWDUMP, "$showdumps -200 $host $showdump_args|") or die "Can't run $showdumps!\n";
+
+while(<SHOWDUMP>) {
+	chomp;
+	next unless /^$host/;
+	($alias, $seq, $day, $month, $date, $time, $tz, $year, $prts, $prev, $mb, $pi) = split;
+	#next unless ($alias == $host);
+	#print "Let's see: $alias is $host? $seq\n";
+	($qtr, $series, $level) = split('-', $seq);
+	if ($max_qtr < $qtr) {
+		$max_qtr = $qtr;
+	}
+	#print "OK, so I've got $qtr $series $level\n";
+	#push @{ $seq_array{$qtr}{$series} }, [$level];
+	$seq_array{$qtr}{$series}{$level} = 1;
+
+}
+close SHOWDUMP;
+
+#for $qtr ( 0 .. $#seq_array) {
+	#print "\t [ @{$seq_array} ]\n";
+#}
+#foreach $qtr (sort keys %seq_array) {
+	#$max_qtr = $qtr;
+#}
+
+
+foreach $qtr (sort keys %seq_array) {
+	# Make sure we're dealing only with sequences since the last full 
+	# backups (that is, the highest qtr available)
+	next unless ($max_qtr eq $qtr);
+	foreach $series (sort keys %{ $seq_array{$qtr}} ) {
+		foreach $level (sort keys %{ $seq_array{$qtr}{$series}} ) {
+			# Cast level as an int
+			$level = $level + 0;
+
+			# Here's the good part:
+			#
+			# Cut off array at $level, discarding all higher levels
+			# leaving only lower levels intact. Being perl, this
+			# could probably be done in one step.
+			@restore_seq = @restore_seq[0 .. $level];
+
+			# Now set the highest level (now $level) to the current
+			# sequence number.
+			$restore_seq[$level] = "$qtr-$series-$level";
+		}
+	}
+}
+
+print "Restore sequence:\n";
+foreach $seq_num (sort @restore_seq) {
+	print "\t$seq_num\n"; 
+}
+
+$backup_dir = "/backup";
+#$backup_dir = "/backup" . (2 - ($max_qtr % 2)) ;
+#print "Backups should be in $backup_dir\n";
+
+#open(VOLLIST, "ls -d1 $backup_dir/$host/backup[a-z]* |");
+if (!$dest) {
+	$dest = "devbio-fs-1 a";
+}
+
+# If volume was provided on the command line, do only it. Otherwise, do 
+# everything listed for the host(alias)
+if ($restore_volume) {
+	push @vols, $restore_volume;
+	$num_vols=1;
+} else {
+	open(VOLLIST, "/usr/local/pd/data/cellar/hosts/$host.afs");
+
+	while (<VOLLIST>) {
+		chomp;
+		next unless /^\s+/;
+		$num_vols++;
+		#s!$backup_dir/$host/backup!!;
+		($junk1, $volume, @junk) = split /\s+/;
+		#print $volume;
+		#push @vols, $_;
+		push @vols, $volume;
+		#print;
+		#print "\n";
+	}
+	close VOLLIST;
+}
+
+print "Need to restore $num_vols volumes.\n";
+
+foreach $volume (sort @vols) {
+	# Working one volume at a time, try to find backup files for
+	# each sequence number.
+	print "============================================================\n";
+	print "Working on $volume\n";
+	print "(looking in $backup_dir/$host/backup$volume/)\n";
+	foreach $seq_num (sort @restore_seq) {
+		($qtr, $series, $level) = split('-', $seq_num);
+		# Check for presence of a backup file for this qtr
+		if (-d "$backup_dir/$host/backup$volume/$qtr") {
+			while(<$backup_dir/$host/backup$volume/$qtr/${seq_num}_*aa>) {
+				if ($level eq '0') {
+					$options = "-overwrite full";
+				} else {
+					$options = "-overwrite incremental";
+				}
+				#print "\tNeed to run: ";
+				#print("cat $backup_dir/$host/backup$volume/$qtr/${seq_num}_* | gunzip -c | vos restore $dest $volume $options\n");
+				system("cat $backup_dir/$host/backup$volume/$qtr/${seq_num}_* | gunzip -c | vos restore $dest $volume $options\n");
+				print("done!\n");
+				sleep 5;
+			}
+		}
+	}
+	
+}
