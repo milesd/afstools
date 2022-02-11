@@ -1,0 +1,45 @@
+From: clauberg@rrz.uni-koeln.de (Axel Clauberg)
+Date: Tue, 7 Dec 1993 15:11:12 +0100
+To: savage@msc.cornell.edu, info-afs@transarc.com
+Subject: Re: Files with Wrong Group
+
+On Dec 6, 18:10, savage@msc.cornell.edu wrote:
+> Subject: Files with Wrong Group
+> 
+>    New files created in our xdm login windows are getting group ownership set
+> to the first pagsh number as listed by 'groups'. The problem occurs in any
+> local window or new pagsh invoked from the original login shell.
+> 
+> > ll x
+> -rw-r--r--   1 savage   33536          0 Dec 06 18:04 x
+> > groups
+> 33536 33930 mscadm
+> 
+>    Has anyone else seen this behavior?
+Yes, seen and fixed (just yesterday... ;-)).
+The AFS authenticating xdm inserts the pag data into the first two
+slots [0,1]  of the group array. Later on (in session.c), a setgid
+is done with argument groups[0]. This will always set your primary group to
+the first part of the pag data.
+We replaced the setgid call in session.c by the following code:
+#ifdef AFS
+        if (verify->ngroups > 2 && verify->groups[0] > 32767)
+          setgid (verify->groups[2]);
+        else
+          setgid (verify->groups[0]);
+#else
+        setgid (verify->groups[0]);
+#endif
+
+At least this works for us...
+
+Best regards, Axel 
+
+-- 
+Axel Clauberg,    Regional Computing Center, University of Cologne
+                  Robert-Koch Str. 10, D-50931 Koeln, Germany
+                  Phone:    +49 (221) 478-5589
+                  FAX:      +49 (221) 478-5590
+                  Internet: clauberg@rrz.Uni-Koeln.DE
+                  X.400: s=clauberg; ou=rrz; p=uni-koeln; a=d400; c=de
+

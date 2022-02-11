@@ -1,0 +1,107 @@
+\begindata{text,1594840}
+\textdsversion{12}
+\template{help}
+
+
+\chapter{Reauth:  Periodically Renew AFS Authentication
+
+}
+\section{What Reauth is
+
+}\leftindent{
+\bold{Reauth} provides a way for time-intensive programs which would normally 
+lose AFS authentication after 25 hours to renew that authentication without 
+direct user intervention.  Postman, for example, uses reauth.
+
+}
+\section{Quick reference
+
+}\leftindent{
+\bold{Syntax:}
+
+
+\leftindent{reauth \italic{time} \italic{userid} <\italic{password}>}
+
+
+where \italic{time} is in seconds, \italic{userid} is the userid of the person 
+running the program, and \italic{password} is the user's password. If a 
+password is not specified on the command line, it is read from the terminal.
+
+
+\bold{Errors:}  reauth sends errors to the console device.  Possible error 
+messages are:
+
+
+\leftindent{\bold{Password too long:}  \italic{len}   The password entered was 
+of length \italic{len} and exceeds the maximum length of 64.
+
+
+\bold{fork failed}}}:   \leftindent{\leftindent{\bold{reauth} was unable to 
+place itself in the background and cannot execute. The reason will appear on 
+the previous line.
+
+
+\bold{Unable to authenticate to AFS because}: \italic{\bold{reason}}: the AFS 
+authentication failed because of the given reason.  The most common reason 
+would be an incorrect password.
+
+}}
+\section{How Reauth works}
+
+\leftindent{
+When first run, \bold{reauth} authenticates, and then places itself in the 
+background and sleeps until the specified time has elapsed.  It then attempts 
+to reauthenticate the user on the file system.  If it succeeds, then it again 
+goes to sleep and repeats the process indefinitely.  If it fails  then it will 
+retry every 5 minutes until it does succeed.
+
+}
+\section{Warnings
+
+}\leftindent{
+Running \bold{reauth} from shell scripts can pose security problems if the 
+program is run with the password on the command line. Although it is zero'd 
+out, some systems do not honor this attempt to remove it from a \italic{ps} 
+listing.
+
+
+\bold{Reauth} never terminates and can only be killed manually or by rebooting 
+the workstation.
+
+
+The only situations in which \bold{reauth} should be necessary are those in 
+which the program will run longer than the lifetime of the authentication 
+(usually 25 hours), the program \italic{must} be authenticated, and the user 
+cannot be present.  
+
+}
+\section{Advice
+
+}\leftindent{
+Since authentication normally lasts for 25 hours, it is usually unnecessary to 
+run \bold{reauth} much more than that, though a value of around 12 hours 
+(43200 seconds) is acceptable.
+
+
+Since \bold{reauth} is equivalent to manually running \italic{klog}, users are 
+encourage to do so, if possible.
+
+}
+\section{Files}
+
+\leftindent{
+/usr/local/etc/reauth	the program
+
+}
+\section{Related tools}  
+
+
+Select (put a box around) one of the italicized names and choose "Get Help on 
+Selected Word" from the pop-up menu to see the help file for:
+
+
+\leftindent{\italic{klog
+
+ps}}
+
+\enddata{text,1594840}

@@ -1,0 +1,11 @@
+#!/bin/sh
+
+# Insert your local path to the AFS supplied libraries and 
+# include files
+#AFSDIR=/afs/transarc.com/product/afs/3.4a/@sys
+cc whatfid.c -c -DSHOW_NAMES -I$AFSDIR/include 
+cc whatfid.o -o whatfid \
+	-L$AFSDIR/lib -L$AFSDIR/lib/afs \
+	-lvolser -lvldb -lubik -lauth -lrxkad -ldes -lrx -llwp -lsys -lkauth \
+	-lcom_err -lcmd -laudit  -L/usr/ucblib -lsocket -lnsl \
+	$AFSDIR/lib/afs/util.a  /usr/ucblib/libucb.a

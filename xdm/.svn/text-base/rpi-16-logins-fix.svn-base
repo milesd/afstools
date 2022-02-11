@@ -1,0 +1,18 @@
+From: "Joel P. Lord" <lordj2@rpi.edu>
+Date: Tue, 28 Mar 1995 15:40:17 -0500
+To: afs-contrib@transarc.com
+Subject: AFS/kerberized version of XDM
+
+   The version of XDM that you have from RPI in your contrib space is now
+out of date.  It has a minor (well...) bug under AIX 3.2.x where after
+16 logins, it will no longer be able to get a PAG, and will then just toss
+any tokens that it gets.  It still authenticates under AFS, but you have
+no access to your home directory.  There is a new version in
+/afs/rpi.edu/campus/session/xdm/2.0/distrib/src that deals with this problem,
+and is otherwise identical to the previous.
+
+Joel Lord
+Systems Programmer
+Information Technology Services
+Rensselaer Polytechnic Institute
+

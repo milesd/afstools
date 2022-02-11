@@ -1,0 +1,576 @@
+#!/afs/tr/fs/dev/perl -w
+
+# check-cellservdb
+# Joseph Jackson
+# 02-Dec-1994
+
+# Usage:  check-cellservdb [-d N] [filenames...]
+#         check-cellservdb [-d N] -f [filenames...] > output
+#
+# Look for mistakes in a CellServDB file, potentially 
+# spitting it back out in a canonical format.
+#
+# In the first pass, read in the file, aborting if syntax errors are found.
+# If the -f option was given, print a formatted copy to standard output.
+# If -f was not given, continue with a more thorough set of checks;
+# first, make sure that the server names and ip addresses match, then
+# use "bos listhost" to verify the list of servers and the cell name.
+
+# The main data structure is the allCells assocs array.
+# The value has the form: <server-addr>,<server-name>;...
+# For example:
+#    $cells{"andrew.cmu.edu"} = "128.2.10.2,vice2;128.2.10.7,vice7;";
+#    $cells{"transarc.com"} = "158.98.14.3,oscar.transarc.com;";
+
+# Enable line buffering, even if output is redirected to a file
+$| = 1;
+
+
+###########################################################################
+# Main
+#
+&ParseArgs(*debugMask, *justFormat);		# debugMask is a global
+&ParseInput(*allCells, *allCellComments);
+if ($justFormat) {
+    &Format(*allCells, *allCellComments);
+} else {
+    &CheckInfo(*allCells);
+}
+
+exit 0;
+
+
+###########################################################################
+# ParseArgs
+#
+# Set the $debugMask variable if "-d" is the first argument.
+# Set the $justFormat argument if "-f" is the next argument.
+# If none of the AFS command directories are on the path, 
+# add them at the end (to increase the chances of finding the "bos" command.)
+# 
+sub ParseArgs {
+    local(*debugMask, *justFormat) = @_;
+
+    if ($ENV{'PATH'} !~ m#/usr/afsws/bin|/usr/afs/bin#) {
+	$ENV{'PATH'} .= ":/usr/afsws/bin:/usr/afs/bin";
+    }
+
+    if ($ARGV[0] eq "-d") {
+	shift @ARGV;
+	$debugMask = shift @ARGV;
+    } else {
+	$debugMask = 0;
+    }
+    if ($ARGV[0] eq "-f") {
+	shift @ARGV;
+	$justFormat = 1;
+    } else {
+	$justFormat = 0;
+    }
+}
+
+
+###########################################################################
+# ParseInput
+#
+# Read the files named on the command line.  If none were given, read 
+# standard input.  Verify the basic syntax of the input.  Things are checked
+# one step at a time so that the diagnostic messages can be as specific 
+# (as helpful) as possible.
+#
+sub ParseInput {
+    local(*cells, *cellComments) = @_;
+
+    local($linetype,$prevlinetype,$cell,$comment,$name,$ip);
+    local(%serverNames,%serverAddrs);
+
+    $linetype = '';
+    while (<>) {
+	$prevlinetype = $linetype;
+	if (/^>(\S+)\s*#\s*(.*)\s*$/) {			# cell name line
+	    $linetype = 'CELL';
+	    $cell = $1;
+	    $comment = $2;
+	    &Debug(1, "Found cell `$cell'");
+	} elsif (/^([0-9.]+)\s+\#\s*(\S+)/) {		# server line
+	    $linetype = 'SERVER';
+	    $ip = $1;
+	    $name = $2;
+	    &Debug(1, "Found server `$name', address `$ip'");
+	} else {
+	    &Quit("Obvious syntax error");
+	}
+
+	if ($linetype eq 'CELL') {
+	    &Quit("Cell just before `$cell' has no servers listed")
+		if ($prevlinetype eq 'CELL');
+	    &Quit("Cell `$cell' is listed twice")
+		if (defined $cells{$cell});
+	    &Quit("Uppercase letters not allowed in cell name: $cell")
+		if ($cell =~ /[A-Z]/);
+	    &Quit("Illegal character `$1' in cell name: $cell")
+		if ($cell =~ /([^a-z0-9-_.])/);
+
+	    $cells{$cell} = '';			# To placate the perl -w parser
+	    $cellComments{$cell} = $comment;
+	} else { # linetype eq 'SERVER'
+	    &Quit("File doesn't begin with a cell name")
+		if (! defined $cell);
+	    &Quit("Illegal format for IP address: $ip")
+		if ($ip !~ /^([0-9]{1,3}\.){3}[0-9]{1,3}$/);
+	    &Quit("Illegal character `$1' in server name: $name")
+		if ($name =~ /([^A-Za-z0-9-_.])/);
+	    &Quit("Server name appears twice: $name")
+		if (defined $serverNames{$name});
+	    &Quit("Server address appears twice: $ip")
+		if (defined $serverAddrs{$ip});
+
+	    $serverNames{$name} = '';
+	    $serverAddrs{$ip} = '';
+	    $cells{$cell} .= "$ip,$name;";
+	}
+    }
+    undef %serverNames;
+    undef %serverAddrs;
+}
+
+
+###########################################################################
+# Format
+#
+# Convert the allCells array back into a CellServDB file, printing it to
+# standard output.  A specific format is used so that it's easy to find
+# the entries and possible to run "diff" on the output of several runs.
+# - Sort the cells by "reversed" cell name so that cells in the same domain
+#   are kept next to each other in the output.  See the comments for &byDomain.
+# - For each cell, sort the server entries in the default manner.  This
+#   amounts to an alphabetic sort of the IP addresses.  It doesn't make a
+#   great deal of sense to humans, but all we really need is a quick and
+#   deterministic sorting order.
+#
+sub Format {
+    local(*allCells, *allCellComments) = @_;
+
+    local($ip, $name);
+    foreach $cell (sort byDomain (keys %allCells)) {
+	printf ">%-25s # %s\n",
+	    $cell, $allCellComments{$cell};
+ 	foreach $serverentry (sort split(';', $allCells{$cell})) {
+	    ($ip, $name) = split(',', $serverentry);
+	    printf "%s\t\t\t#%s\n", $ip, $name;
+	}
+    }
+}
+
+
+###########################################################################
+# CheckInfo
+#
+# Perform the detailed checks (basic syntax has already been validated.)
+# Iterate through the cells in the same order used for the formatted output.
+# For each server line, compare the IP address and hostname.  Then compare
+# the cell's entry with the output from "bos listhost".
+#
+sub CheckInfo {
+    local(*allCells) = @_;
+
+    local($cell, $ip, $name, @servers);
+    foreach $cell (sort byDomain (keys %allCells)) {
+	@servers = ();
+	&Debug(2, "$cell:");
+	foreach $serverentry (split(';', $allCells{$cell})) {
+	    ($ip, $name) = split(',', $serverentry);
+	    &Debug(2,"  $name");
+	    &MatchNameAddr($cell, $ip, $name);
+	    push (@servers, $name);
+	}
+	# Second argument must match the BosListHost code
+	&CheckCellServDBEntry($cell, join(',', sort @servers));
+    }
+}
+
+
+###########################################################################
+# byDomain
+#
+# Comparison function called by "sort" in the Format and CheckInfo
+# subroutines.  $a and $b are automatically set by the sort function
+# and contain the cell names to be compared.  Instead of a standard
+# string comparison, first reverse the words separated by dots.  This
+# will keep related cells next to each other in the sort order:
+#
+#   cheme.cmu.edu, andrew.cmu.edu => edu.cmu.cheme, edu.cmu.andrew
+#
+sub byDomain {
+    if (1==0) {$a=$b=''};	# To placate the perl -w parser
+    join('.', reverse split(/[.]/, $a)) cmp 
+	join('.', reverse split(/[.]/, $b));
+}
+
+
+###########################################################################
+# CheckCellServDBEntry
+#
+# Compare an entry parsed out of the CellServDB file to "bos listhost" output.
+# For each server name, call "CellInfo" to return the cell name and list of
+# servers parsed out of the "bos listhost" command.  We would expect the
+# returned cell name ($cell) to be the same as the cell name shown in the 
+# CellServDB file ($CSDBcell) and the returned list of servers ($server) to
+# match the CellServDB list ($CSDBservers).
+# But some times, things are wrong.  In this routine, handle errors from the
+# CellInfo function and simply put the returned cell and server info into
+# the discoveredCells array.  At the end, another routine is used to compare
+# the CSDB information to the "bos listhost" info stored in discoveredCells.
+#
+sub CheckCellServDBEntry {
+    local($CSDBcell, $CSDBservers) = @_;
+
+    local(%discoveredCells, $code, $cell, $servers);
+    foreach $CSDBserver (split(',', $CSDBservers)) {
+
+	$code = &CellInfo($CSDBserver, *cell, *servers);
+
+	if ($code < 0) {
+	    &Debug(3,"$CSDBcell: hard error from CellInfo($CSDBserver)!");
+	    return;
+	} elsif ($code == 0) {
+	    print "$CSDBcell: bos listhost failed for server $CSDBserver\n";
+	} elsif (! defined ($discoveredCells{$cell})) {
+	    &Debug(3,"$CSDBcell: defining $cell on $servers");
+	    $discoveredCells{$cell} = $servers;
+	} elsif (! &SameServers($servers, $discoveredCells{$cell})) {
+	    print "$CSDBcell: Misconfigured server CellServDBs!\n",
+	    "    CellServDB input file contains these servers:\n",
+	    "      $CSDBservers\n",
+	    "    bos listhost $CSDBserver reports these servers:\n",
+	    "      $servers\n",
+	    "    bos listhost for all previous servers reported:\n",
+	    "      $discoveredCells{$cell}\n";
+	    return;
+	} else {
+	    &Debug(3,"$CSDBcell: defined $cell once already");
+	}
+    }
+    &CompareCSDBToDiscovered($CSDBcell, $CSDBservers, *discoveredCells);
+}
+
+
+###########################################################################
+# CompareCSDBToDiscovered
+#
+# The above routine has issued "bos listhost" against each of the
+# servers listed in the CellServDB ($CSDBservers) for this cell
+# ($CSDBcell).  The "bos listhost" information was stored by cell name
+# in the discoveredCells array.  Now we compare the discovered cells
+# to the CSDB list.  A very specific ordering of checks is used so
+# that common mistakes can be identified:
+#  If no cells were defined, all the "bos listhost" commands must have failed.
+#  If the $CSDBcell was defined, then its value is the correct list of servers
+#    as obtained from "bos listhost".  See if this matches $CSDBservers.
+#  If the $CSDBcell was not defined, then perhaps the cell was simply renamed.
+#  If more than one cell was defined, then some, but not all, of the 
+#    $CSDBservers were moved to a different cell.
+#
+sub CompareCSDBToDiscovered {
+    local($CSDBcell, $CSDBservers, *discoveredCells) = @_;
+    local(@newname);
+
+    &Debug(3,"$CSDBcell: lead to discovery of these cells:");
+    foreach $discCell (keys %discoveredCells) {
+	&Debug(3,"  $discCell: $discoveredCells{$discCell}");
+    }
+
+    if (keys(%discoveredCells) == 0) {
+	print "$CSDBcell: None of the servers listed in the CellServDB\n",
+	"    input file could be contacted (the cell might no longer exist)\n";
+    } elsif (defined $discoveredCells{$CSDBcell}) {
+	if (! &SameServers($CSDBservers, $discoveredCells{$CSDBcell})) {
+	    print "$CSDBcell: CellServDB input file is wrong, contains:\n",
+	    "      $CSDBservers\n",
+	    "    when bos listhost reports:\n",
+	    "      $discoveredCells{$CSDBcell}\n";
+	}
+	delete $discoveredCells{$CSDBcell};
+    } elsif (keys(%discoveredCells) == 1) {
+	@newname = keys(%discoveredCells);
+	print "$CSDBcell: CellServDB input file is wrong, contains cell name:\n",
+	"      $CSDBcell\n",
+	"    when bos listhost reports the cell name:\n", 
+	"      ", @newname, "\n";
+	delete $discoveredCells{pop @newname};
+    } else {
+	print "$CSDBcell: CellServDB input file is wrong, the cell name:\n",
+	"      $CSDBcell\n",
+	"    no longer exists on any of the servers:\n",
+	"      $CSDBservers\n";
+    }
+    foreach $extra (keys %discoveredCells) {
+	print "$CSDBcell: CellServDB input file is wrong, the server(s)\n",
+	"      $discoveredCells{$extra}\n",
+	"    are now part of the cell\n",
+	"      $extra\n";
+    }
+}
+
+
+###########################################################################
+# CellInfo
+#
+# For a given server name ($server), use "bos listhost" to return the cell
+# name ($cell) and list of servers ($servers) as given in $server's
+# /usr/afs/etc/CellServDB file.  Just to be thorough, also cross-check the
+# list of servers returned by "bos listhost" by looking at each of _their_
+# "bos listhost" results.
+# For example, if this routine is called for "ernie", "bos listhost" finds
+# that the cell name is "transarc.com" and the server list is 
+# "ernie,bigbird,oscar".  We then issue "bos listhost" against bigbird and 
+# oscar to make sure that they agree with ernie's results.
+# The return codes are:
+#   1  Bos listhost completed and cross-checked against all available servers
+#   0  Bos listhost for the given server failed
+#  -1  Inconsistent bos listhost results were detected
+#
+sub CellInfo {
+    local($server, *cell, *servers) = @_;
+
+    local($code);
+    &Debug(4,"CellInfo($server) called");
+
+    $code = &BosListHost($server, *cell, *servers);
+    
+    # If BosListHost couldn't contact the server, just notify the caller
+    if ($code == 0) {
+	return 0;
+    }
+
+    &Debug(4,"  $server: I'm in cell $cell on servers:\n    $servers");
+
+    local($cohortCell, $cohortServers);
+    foreach $cohort (split(',', $servers)) {
+	next if ($cohort eq $server);
+	#
+	# Skip the cross-check if the hostname contains no periods to avoid
+	# server CellServDB entries with short hostnames.  Those references
+	# might work okay on the remote server, but wouldn't be resolved
+	# properly locally.
+	#
+	next if ($cohort !~ /[.]/);
+	&Debug(4,"  $server: cross-checking Ubik cohort $cohort");
+	$code = &BosListHost($cohort, *cohortCell, *cohortServers);
+
+	if ($code == 0) {
+	    print "$cell: can't get bos listhost $cohort\n",
+	    "    for comparision with bos listhost $server\n";
+	} elsif (($cell ne $cohortCell) ||
+		 ! &SameServers($servers, $cohortServers)) {
+	    print "Misconfigured server CellServDBs!\n",
+	    "    bos listhost $server reports cell name\n",
+	    "        $cell\n",
+	    "      on servers:\n",
+	    "        $servers\n",
+	    "    bos listhost $cohort reports cell name\n",
+	    "        $cohortCell\n",
+	    "      on servers:\n",
+	    "        $cohortServers\n";
+	    return -1;
+	}
+    }
+    return 1;
+}
+
+###########################################################################
+# BosListHost
+#
+# Call "bos listhost -noauth" for the given $server.  If the command
+# succeeds, return 1 and put the results in the $cell and $servers
+# arguments.  Return 0 on any failure.  
+#
+# The "CellInfo" function is likely to call this routine for the same
+# server several times due to its cross-checking algorithm, so cache
+# all results in a "static" associative array, $listhostCache.
+#
+# The $servers value must be constructed in the exact same manner as
+# the CheckInfo function constructs the list of CellServDB servers
+# because we compare them with the "eq" operator.  
+#
+sub BosListHost {
+    local($server, *cell, *servers) = @_;
+
+    local(@listhostServers);
+    &Debug(5,"  BosListHost($server) called");
+    
+    if (defined($listhostCache{$server,'C'})) {
+	$cell    = $listhostCache{$server,'C'};
+	$servers = $listhostCache{$server,'S'};
+	&Debug(5, "    returning cached information");
+    } else {
+	open (BOS, "bos listhost $server -noauth |") || return 0;
+	$_ = <BOS>;
+	if (/^Cell name is (.*)/) {		# Cell line is first
+	    $cell = $1;
+	} else {
+	    &Debug(5,"   Bad formatting for cell line:\n     $_");
+	    return 0;
+	}
+	while (<BOS>) {
+	    if (/Host \d+ is (.*)/) {		# Server lines follow
+		push(@listhostServers, $1);
+	    } else {
+		&Debug(5,"   Bad formatting for host line:\n      $_");
+		return 0;
+	    }
+	}
+	close (BOS) || return 0;
+	return 0 if ($? != 0);		# Check exit status of bos command
+	
+	# Must be identical to the CheckInfo equivalent
+	$servers = join(',', sort @listhostServers);
+
+	$listhostCache{$server,'C'} = $cell;
+	$listhostCache{$server,'S'} = $servers;
+	
+	&Debug(5, "    cell: $cell,\n    servers: $servers");
+    }
+    return 1;
+}
+
+
+# Put this code in BosListHost to test the bos listhost consistency checks
+
+#   if ($server =~ /ernie/) {
+#	$cell = "transarc.com";
+#	$cell = "tr.edu";
+#	$servers="oscar.transarc.com,ernie.transarc.com,bigbird.transarc.com";
+#	$servers = "ernie.transarc.com";
+#	return 1;
+#   } elsif ($server =~ /oscar/) {
+#	$cell = "transarc.com";
+#	$servers="oscar.transarc.com,ernie.transarc.com,bigbird.transarc.com";
+#	$servers="oscar.transarc.com,bigbird.transarc.com";
+#	return 1;
+#   } else {
+#	$cell = "transarc.com";
+#	$servers="oscar.transarc.com,ernie.transarc.com,bigbird.transarc.com";
+#	$servers="oscar.transarc.com,bigbird.transarc.com";
+#	return 1;
+#   }
+
+
+###########################################################################
+# MatchNameAddr
+#
+# Using gethostbyname(), see if the given name has the given IP address
+# and make sure that the name is either the official name or an alias.
+# Account for the fact that a host name can have multiple addresses.
+#
+sub MatchNameAddr {
+    local($cell, $ip, $name) = @_;
+
+    local($officialName, $aliases, $officialIp, @officialIps);
+    local(@hostent) = gethostbyname($name);
+    if (! @hostent) {
+	&Warning($cell, "Host name not found: $name");
+    } else {
+	$officialName = shift @hostent;
+	$aliases = shift @hostent;
+	shift @hostent;		# discard addrtype
+	shift @hostent;		# discard addrlength
+				# leaves array of addrs in @hostent
+	if ($name ne $officialName && $name ne $aliases) {
+	    &Warning($cell, "Server name `$name' differs from\n" . 
+		     "     official name `$officialName'" . 
+		     ($aliases ? "and from\n     alias name `$aliases'" : ""));
+	}
+	foreach $officialAddr (@hostent) {
+	    $officialIp = join('.', unpack('C4', $officialAddr));
+	    if ($ip eq $officialIp) {
+		return;
+	    }
+	    push (@officialIps, $officialIp);
+	}
+	# If we get this far, no IP addresses matched
+	&Warning($cell, sprintf("Address `%s' for server `%s' differs from\n" .
+				"    all official addresses: %s", 
+				$ip, $name, join (' ', @officialIps)));
+    }
+}
+
+
+###########################################################################
+# SameServers
+#
+# Compare two lists of servers.  Both strings are comma separated host names
+# sorted alphabetically.  First see if the strings are identical.  If they are
+# not, then perhaps one list contains a short name while the other has a long
+# name (FQDN) such as afs12 vs. afs12.company.com.  Those should be considered
+# the same for our purposes since the CSDB has long names while bos listhost 
+# often has short names.
+# Return 1 if the same, 0 if not.
+#
+sub SameServers {
+    local($a, $b) = @_;
+    local(@a, @b, $name_a, $name_b, $len_a, $len_b, $shortest);
+
+    return 1 if ($a eq $b);	# Are they identical?
+
+    @a = split(/,/, $a);	# Do they have the same number of elements?
+    @b = split(/,/, $b);
+    return 0 if ($#a != $#b);
+
+    while ($name_a = shift @a) { # Do they begin with the same characters?
+	$name_b = shift @b;
+	$len_a  = length $name_a;
+	$len_b  = length $name_b;
+	$shortest = ($len_a < $len_b) ? $len_a : $len_b;
+	return 0
+	    if (substr($name_a,$[,$shortest) ne substr($name_b,$[,$shortest));
+    }
+
+    return 1;
+}
+
+
+###########################################################################
+# Warning
+#
+sub Warning {
+    local($cell, $msg) = @_;
+
+    print STDERR "$cell\n    $msg\n";
+}
+
+
+###########################################################################
+# Quit
+#
+# Spit out an error with the current line number, then the given message.
+# Then abort the program.
+#
+sub Quit {
+    local($msg) = pop(@_);
+
+    print STDERR "Error encountered at line $., exiting\n  $msg\n";
+    die "\n";
+}
+
+###########################################################################
+# Debug
+#
+# Conditionally print the given message string.
+# Given a bit number in the range 1..32, print the message only if that 
+# bit is set in the debugFlag value:
+#
+# debugFlag  Print for which bit values?
+# 0 (0000)   None
+# 1 (0001)   1
+# 2 (0010)   2
+# 3 (0011)   1 and 2
+# 4 (0100)   3
+# 5 (0101)   1 and 3
+#
+sub Debug {
+    local($bit, $msg) = @_;
+
+    print "$msg\n" if ((2 ** ($bit-1)) & $debugMask);
+}
+

@@ -1,0 +1,55 @@
+X-Added: With Flames (bb $Revision: 2.0 $)
+Return-path: <bb+transarc.afs.psupport.info-afs-errors@transarc.com>
+X-Andrew-Authenticated-as: 0;transarc.com;Network-Mail
+Received: from transarc.com via trymail for Info-AFS@transarc.com (->bb+transarc.external.info-afs)
+          ID </afs/transarc.com/common/bboards/Mailbox/YfWaYq=0Bi81I:HEtH>;
+          Tue, 23 Feb 1993 13:13:10 -0500 (EST)
+Received: from transarc.com via qmail
+          ID </afs/transarc.com/service/mailqs/q2/QF.IfWaAdD0Bi81I:DE5:>;
+          Tue, 23 Feb 1993 12:47:22 -0500 (EST)
+Received: from mailroom.bsc.no (newsroom.bsc.no, [129.177.21.11]) by transarc.com (5.54/3.15) id <AA00857>; Tue, 23 Feb 93 11:01:56 EST
+Received: from viceroy (viceroy.bsc.no) by mailroom.bsc.no id <AA21455@mailroom.bsc.no>; Tue, 23 Feb 1993 08:52:49 +0100
+From: Rob MacKinnon <robmack@bsc.no>
+Received: by viceroy id <AA70551@viceroy>; Tue, 23 Feb 1993 08:52:58 +0100
+Message-Id: <9302230752.AA70551@viceroy>
+Subject: Re: xdm and AFS
+To: Info-AFS@transarc.com
+Date: Tue, 23 Feb 1993 08:52:58 +22311841 (MET)
+In-Reply-To: <QfWCvj30BwwLEAk65G@transarc.com> from "Joseph_Jackson@transarc.com" at Feb 22, 93 10:19:11 am
+X-Mailer: ELM [version 2.4 PL21]
+Mime-Version: 1.0
+Content-Type: text/plain; charset=US-ASCII
+Content-Transfer-Encoding: 8bit
+Content-Length: 1512      
+
+According to Joseph_Jackson@transarc.com:
+> 
+> goeringh@re.deere.com (Hope Goering) writes:
+> > Does/Will anyone provide an X11R4 version of xdm that authenticates
+> > with AFS?  We are running xdm on AIX 3.2.
+> 
+> I was recently contacted by someone from Cornell who has an AFS
+> authenticating version of xdm that he would like to place in the
+> AFS-contrib area.  Right now, I'm awaiting receipt of the code.
+> An announcement will be made after everything is in place.
+> 
+> Another version of xdm was recently announced by RPI.  (See the
+> Info-AFS message of 9-Feb-1993.)  You can find their code in:
+> 	/afs/rpi.edu/campus/session/xdm/1.64c/distrib/src
+> 
+> Joe Jackson,
+> AFS Product Support,
+> Transarc Corp.
+> 
+There is also a port of the X11R5 xdm code with AFS 3.2 enhancements available
+by anonymous ftp from ftp.bsc.no:/pub/Src/x11r5/mit/clients/xdm.  This code
+is correct for AIX 3.2 (and RENO BSD) as it has repairs for the change in AIX 3.2
+from AIX 3.1 for BSD 4.4 networking 
+-- 
+Robert MacKinnon,    UNIX Support | Internet/Email: robmack@bsc.no
+Bergen Environmental Sciences and | 		    robmack at nobscvm
+Solution Centre,  Bergen,  NORWAY | Phone:          +47-5-544618
+********************************************************************************
+p'ch'zarni'chiwkov:  the nasty little sound of a sword being unsheathed right
+behind one at just the point when one thought one had disposed of one's enemies.
+********************************************************************************

@@ -1,0 +1,142 @@
+#!/usr/local/bin/expect -f
+
+#
+# Specifics for host ????
+#
+set PortA 4
+set PortB 5
+set Volsets 2
+set Fullday(1) wed
+set Fullday(2) sat
+
+set Backupcmd "/usr/local/bin/dobackup"
+set Tapelabelcmd "/usr/local/bin/tapelabels"
+set Mailgroup "IFS.Backup.Reports@umich.edu"
+set Backuplogs "/usr/afs/logs/backuplogs"
+set Srvtab "/usr/local/etc/backupsrvtab"
+set Backupallcmd "/usr/local/bin/backupall"
+set Gettokencmd "/usr/local/bin/gettoken"
+
+set Resultfile "/tmp/bumonitor.run"
+if {[file exists $Resultfile]} {
+	catch {exec mv $Resultfile ${Resultfile}.old}
+}
+
+catch {exec /bin/hostname} hostname
+set Hostname [lindex [split "$hostname" "."] 0]
+set Volsetprefix $Hostname
+
+catch {exec /bin/date "+%a %D"} date
+set Mailsub "Backup Report $hostname $date"
+
+catch {exec /bin/date "+%w"} Day
+
+
+#
+# Check specified full backup days
+#
+for {set n 1} { $n <= $Volsets } { incr n } {
+	case $Fullday($n) in {
+		{sun} {set Nfullday($n) 0}
+		{mon} {set Nfullday($n) 1}
+		{tue} {set Nfullday($n) 2}
+		{wed} {set Nfullday($n) 3}
+		{thu} {set Nfullday($n) 4}
+		{fri} {set Nfullday($n) 5}
+		{sat} {set Nfullday($n) 6}
+		default {
+			send_user "[lindex $argv 0]: Fullday specified wrong in backup script for server $Hostname\n"
+			exit 1
+		}
+	}
+}
+
+
+#
+# Clone all the volumes before starting backups
+#
+catch {exec $Backupallcmd}
+
+
+#
+# Get afs token
+#
+set rc [catch {exec $Gettokencmd backup -f $Srvtab -r UMICH.EDU > $Resultfile} retval]
+if {$rc != 0} {
+#	send_user "$retval\n"
+	catch {exec /bin/echo [lindex $argv 0]: Cannot get tokens | /bin/mail -s '$Mailsub' $Mailgroup}
+	exit 1
+}
+
+
+#
+# Build the full backup commands
+#
+set nF 1
+for {set n 1} { $n <= $Volsets } { incr n } {
+	if {$Nfullday($n) == $Day} {
+		set Fcmd($nF,1) ${Hostname}_${n}
+		set Fcmd($nF,2) /weekly
+		set Fcmd($nF,3) noappend
+		set Fcmd($nF,4) eject
+		incr nF
+	}
+}
+
+
+#
+# Build the incremental backup commands
+#
+set nI 1
+for {set n 1} { $n <= $Volsets } { incr n } {
+	if {$Nfullday($n) != $Day} {
+		set Icmd($nI,1) ${Hostname}_${n}
+		set Icmd($nI,2) /weekly/daily
+		set Icmd($nI,3) append
+		set Icmd($nI,4) noeject
+		incr nI
+	}
+}
+if {$nI > 1} {
+	# First incremental should not append
+	set Icmd(1,3) noappend
+	# Last incrmental should eject
+	set Icmd([expr {$nI-1}],4) eject
+}
+
+
+#
+# Make sure log directory exists
+#
+if {! [file exists $Backuplogs]} {
+	catch {exec /bin/mkdir $Backuplogs}
+}
+
+
+#
+# Run the backup commands
+#
+# Note: Need to attach /dev/console as stdin for the expect script
+# to run properly in this context.  The exact reason has not been
+# researched yet, but the behavior is that some expected output
+# from the "backup" process stops coming through unless there is
+# a tty attached.
+#
+# Fulls
+for {set n 1} { $n < $nF } { incr n } {
+	catch {exec /bin/echo > $Resultfile}
+	catch {exec $Backupcmd $Fcmd($n,1) $Fcmd($n,2) $PortA $PortB $Fcmd($n,3) $Fcmd($n,4) < /dev/console | /bin/tee -a $Resultfile >/dev/null}
+	catch {exec $Tapelabelcmd show | /bin/tee -a $Resultfile >/dev/null}
+	catch {exec cat $Resultfile | /bin/mail -s $Mailsub $Mailgroup}
+	catch {exec /bin/date "+%y%m%d_%H:%M"} d
+	catch {exec cp $Resultfile $Backuplogs/${d}.$Fcmd($n,1)}
+}
+# Incrementals
+for {set n 1} { $n < $nI } { incr n } {
+	catch {exec /bin/echo > $Resultfile}
+	catch {exec $Backupcmd $Icmd($n,1) $Icmd($n,2) $PortA $PortB $Icmd($n,3) $Icmd($n,4) < /dev/console | /bin/tee -a $Resultfile >/dev/null}
+	catch {exec $Tapelabelcmd show | /bin/tee -a $Resultfile >/dev/null}
+	catch {exec cat $Resultfile | /bin/mail -s $Mailsub $Mailgroup}
+	catch {exec /bin/date "+%y%m%d_%H:%M"} d
+	catch {exec cp $Resultfile $Backuplogs/${d}.$Icmd($n,1)}
+}

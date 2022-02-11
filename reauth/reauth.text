@@ -1,0 +1,78 @@
+
+Reauth:  Periodically Renew AFS Authentication
+
+What Reauth is
+
+    Reauth provides a way for time-intensive programs which would
+    normally lose AFS authentication after 25 hours to renew that
+    authentication without direct user intervention.  Postman, for
+    example, uses reauth.
+
+Quick reference
+
+    Syntax:
+
+        reauth time userid <password>
+
+    where time is in seconds, userid is the userid of the person running
+    the program, and password is the user's password. If a password is
+    not specified on the command line, it is read from the terminal.
+
+    Errors:  reauth sends errors to the console device.  Possible error
+    messages are:
+
+        Password too long:  len   The password entered was of length len
+        and exceeds the maximum length of 64.
+
+        fork failed:   reauth was unable to place itself in the
+        background and cannot execute. The reason will appear on the
+        previous line.
+
+        Unable to authenticate to AFS because: reason: the AFS
+        authentication failed because of the given reason.  The most
+        common reason would be an incorrect password.
+
+How Reauth works
+
+    When first run, reauth authenticates, and then places itself in the
+    background and sleeps until the specified time has elapsed.  It then
+    attempts to reauthenticate the user on the file system.  If it
+    succeeds, then it again goes to sleep and repeats the process
+    indefinitely.  If it fails  then it will retry every 5 minutes until
+    it does succeed.
+
+Warnings
+
+    Running reauth from shell scripts can pose security problems if the
+    program is run with the password on the command line. Although it is
+    zero'd out, some systems do not honor this attempt to remove it from
+    a ps listing.
+
+    Reauth never terminates and can only be killed manually or by
+    rebooting the workstation.
+
+    The only situations in which reauth should be necessary are those in
+    which the program will run longer than the lifetime of the
+    authentication (usually 25 hours), the program must be
+    authenticated, and the user cannot be present.  
+
+Advice
+
+    Since authentication normally lasts for 25 hours, it is usually
+    unnecessary to run reauth much more than that, though a value of
+    around 12 hours (43200 seconds) is acceptable.
+
+    Since reauth is equivalent to manually running klog, users are
+    encourage to do so, if possible.
+
+Files
+
+    /usr/local/etc/reauth       the program
+
+Related tools  
+
+Select (put a box around) one of the italicized names and choose "Get
+Help on Selected Word" from the pop-up menu to see the help file for:
+
+    klog
+    ps

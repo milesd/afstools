@@ -1,0 +1,281 @@
+------- ./Imakefile ----------------------------------
+7d6
+< #ifdef AIXArchitecture
+9,11d7
+< #else
+< #define BuildChooser !SystemV
+< #endif
+35c31
+< AFSLIBS = ${AFSLIBDIR}afs/libkauth.krb.a ${AFSLIBDIR}libubik.a \
+---
+> AFSLIBS = ${AFSLIBDIR}afs/libkauth.a ${AFSLIBDIR}libubik.a \
+38c34
+<         ${AFSLIBDIR}afs/libauth.krb.a   ${AFSLIBDIR}afs/libsys.a  \
+---
+>         ${AFSLIBDIR}afs/libauth.a   ${AFSLIBDIR}afs/libsys.a  \
+
+------- ./choose.c ----------------------------------
+30,61d29
+<  *
+<  * lucee
+<  * Exp
+<  *
+<  * History:
+<  * choose.c,v 1.3 1992/09/18 19:04:56 lucee Exp
+<  *
+<  * choose.c,v
+<  * Revision 1.3  1992/09/18  19:04:56  lucee
+<  * The chooserFd on sun's would mess up when a user on the local machine quit
+<  * ytalk. The chooserFd would get an exception. xdm would do an accept on the
+<  * fd.  The accept would fail with a "Software caused connection abort."
+<  * xdm would log an error, and return.. try to accept again.. log an error
+<  * return.. filling up /var with error messages.
+<  *
+<  * I never really traced this one down and don't have the time to do so, so I
+<  * put this kludge in: When the fd errors out with this error, close the
+<  * fd and reopen it. Perhaps I should have it do it for other errors as well?
+<  *
+<  * Revision 1.2  1992/09/11  19:14:44  lucee
+<  * Fixed one LogError statement for failed Chooser connections to also
+<  * print out the system error message so we'll have an idea of _why_
+<  * it's failing by spewing forty thousand times and filling up /var
+<  *
+<  * Fixed the default group assignemnt to instead of assigning it to
+<  * group[0] which may be a pag to be a new variable def_gid which is
+<  * specifically for holding the default group.
+<  *
+<  * Added some RCS variable substition flags.
+<  *
+<  * Changed the Imakefile to build the chooser for rs/6000's.
+<  *
+68,69d35
+< static char rcsid[] = "/campus/.cvsroot/session/xdm/choose.c,v 1.3 1992/09/18 19:04:56 lucee Exp";
+< 
+76d41
+< # include       <errno.h>
+78,79d42
+< extern char *sys_errlist[];
+< 
+383,388c346
+< 	LogError ("Cannot accept chooser connection: %s\n",sys_errlist[errno]);
+< 	if( errno == ECONNABORTED ) {
+< 	   Debug("Recreating chooser fd\n");
+< 	   CloseChooserSocket();
+< 	   CreateChooserSocket();
+< 	}
+---
+> 	LogError ("Cannot accept chooser connection\n");
+
+------- ./dm.c ----------------------------------
+26d25
+< # include       "version.h"
+416,425c415,416
+< 
+< 		if(WIFSTOPPED(status)) {
+< 		   LogError("dm.c: WaitForChild: Child pid %d stopped with signal %d\n",pid, WSTOPSIG(status));
+< 		} else if(WIFSIGNALED(status)) {
+< 		   LogError("dm.c: WaitForChild: Child pid %d terminated with signal %d\n",pid,WTERMSIG(status));
+< 		} else if(WIFEXITED(status)) {
+< 		   LogError("dm.c: WaitForChild: Child pid %d exited with value %d\n",pid,WEXITSTATUS(status));
+< 		} else {
+< 		   LogError("dm.c: WaitForChild: Child pid %d strange termination: %d\n",pid,status);
+< 		}
+---
+> 		LogError ("dm.c: WaitForChild: Unknown session exit code %d from process %d\n",
+> 			  waitVal (status), pid);
+431,432c422
+< 		LogError ("Display %s cannot be opened, try %d of %d\n",
+< 			  d->name,d->startTries, d->startAttempts);
+---
+> 		LogError ("Display %s cannot be opened\n", d->name);
+588d577
+< 	setpag();
+
+------- ./dm.h ----------------------------------
+246d245
+< 	GID_T           def_gid;         /* Default GID */
+
+------- ./session.c ----------------------------------
+371d370
+<     int kount;
+388,394c387,388
+< 	Debug("StartSession: User's group: %d, group list: ",verify->def_gid);
+< 	for( kount = 0; kount < verify->ngroups; kount++ ) {
+< 	   Debug("%d ",verify->groups[kount]);
+< 	}
+< 	Debug("\n");
+< 	
+< 	setgid (verify->def_gid);
+---
+> 
+> 	setgid (verify->groups[0]);
+397d390
+< 	Debug("StartSession: User's group: %d\n",verify->def_gid);
+
+------- ./socket.c ----------------------------------
+41,65d40
+< CloseChooserSocket ()
+< {
+<    if( chooserFd == -1 ) {
+<       return;
+<    }
+< 
+<    close( chooserFd );
+<    FD_CLR (chooserFd, &WellKnownSocketsMask );
+< }
+< 
+< CreateChooserSocket ()
+< {
+<     chooserFd = socket (AF_INET, SOCK_STREAM, 0);
+<     Debug ("Created chooser socket %d\n", chooserFd);
+<     if (chooserFd == -1)
+<     {
+< 	LogError ("chooser socket creation failed\n");
+< 	return;
+<     }
+<     listen (chooserFd, 5);
+<     if (chooserFd > WellKnownSocketsMax)
+< 	WellKnownSocketsMax = chooserFd;
+<     FD_SET (chooserFd, &WellKnownSocketsMask);
+< }
+<    
+97c72,82
+<     CreateChooserSocket();
+---
+>     chooserFd = socket (AF_INET, SOCK_STREAM, 0);
+>     Debug ("Created chooser socket %d\n", chooserFd);
+>     if (chooserFd == -1)
+>     {
+> 	LogError ("chooser socket creation failed\n");
+> 	return;
+>     }
+>     listen (chooserFd, 5);
+>     if (chooserFd > WellKnownSocketsMax)
+> 	WellKnownSocketsMax = chooserFd;
+>     FD_SET (chooserFd, &WellKnownSocketsMask);
+
+------- ./streams.c ----------------------------------
+41,65d40
+< CloseChooserSocket ()
+< {
+<    if( chooserFd == -1 ) {
+<       return;
+<    }
+< 
+<    close( chooserFd );
+<    FD_CLR (chooserFd, &WellKnownSocketsMask );
+< }
+< 
+< CreateChooserSocket ()
+< {
+<     chooserFd = t_open ("/dev/tcp", O_RDWR, NULL);
+<     Debug ("Created chooser fd %d\n", chooserFd);
+<     if (chooserFd == -1)
+<     {
+< 	LogError ("chooser stream creation failed\n");
+< 	t_error("t_open chooser");
+< 	return;
+<     }
+<     if (chooserFd > WellKnownSocketsMax)
+< 	WellKnownSocketsMax = chooserFd;
+<     FD_SET (chooserFd, &WellKnownSocketsMask);
+< }
+< 
+117a93,103
+>     chooserFd = t_open ("/dev/tcp", O_RDWR, NULL);
+>     Debug ("Created chooser fd %d\n", chooserFd);
+>     if (chooserFd == -1)
+>     {
+> 	LogError ("chooser stream creation failed\n");
+> 	t_error("t_open chooser");
+> 	return;
+>     }
+>     if (chooserFd > WellKnownSocketsMax)
+> 	WellKnownSocketsMax = chooserFd;
+>     FD_SET (chooserFd, &WellKnownSocketsMask);
+
+------- ./verify.c ----------------------------------
+39,42d38
+< #include <errno.h>
+< 
+< extern char *sys_errlist[];
+< 
+47,49d42
+< #ifndef TKTFILE_ENV_VAR
+< #define TKTFILE_ENV_VAR "KRBTKFILE"
+< #define TKTFILE_NAME_LEN  256
+51d43
+< #endif
+79,136d70
+< #ifdef AFS
+< /**************************************************************************
+<  * PutTKTFileInEnv()
+<  *
+<  * This routine adds the environment variable "KRBTKFILE" to the
+<  * environment of xdm.  It attempts to use a unique name in /tmp
+<  * for this. The main purpose of this is so that we will write
+<  * a Ticket Granting ticket file in a certain place and so later processes
+<  * will know where this is by consulting the environment.
+<  */
+< static void
+<    PutTKTFileInEnv( userUID, userGID, tktfilename )
+< uid_t  userUID;
+< gid_t  userGID;
+< char   tktfilename[TKTFILE_NAME_LEN];
+< {
+<    int    scratch;
+<    char   *tktenvent;
+<    int    tmpfd;
+< 
+<    strcpy( tktfilename, "/tmp/xdmtktXXXXXX" );
+< 
+<    if((tmpfd = mkstemp(tktfilename)) == -1) {
+<       LogError("TKTEnv: Unable to make temporary file name\n");
+<       return;
+<    }
+< 
+<    if(fchown(tmpfd, userUID, userGID) == -1) {
+<       LogError("TKTEnv: Unable to chown file to uid/gid %d/%d: %s\n",
+< 	       userUID,userGID,sys_errlist[errno]);
+<       close(tmpfd);
+<       unlink(tktfilename);
+<       return;
+<    }
+< 
+<    close(tmpfd);
+<    scratch = strlen(TKTFILE_ENV_VAR)+strlen(tktfilename)+2;
+< 
+<    if((tktenvent = (char*)malloc(sizeof(char)*scratch)) == NULL) {
+<       LogError("TKTEnv: Unable to malloc for env. var %s (%s): %s\n",
+< 	       TKTFILE_ENV_VAR,tktfilename,sys_errlist[errno]);
+<       unlink(tktfilename);
+<       return;
+<    }
+<    
+<    sprintf(tktenvent,"%s=%s",TKTFILE_ENV_VAR,tktfilename);
+<    
+<    if(putenv(tktenvent)) {
+<       LogError("TKTEnv: Unable to expand environment for %s: %s\n",
+< 	       tktenvent,sys_errlist[errno]);
+<       return;
+<    }
+< 
+<    Debug("TKTEnv: Added \"%s\" to the environment.\n",tktenvent);
+< 
+< }
+< #endif /* AFS */
+< 
+152d85
+< 	char            tktfilename[TKTFILE_NAME_LEN];
+175,178c108,109
+< 	bzero(tktfilename, TKTFILE_NAME_LEN );
+< 	PutTKTFileInEnv( p->pw_uid, p->pw_gid, tktfilename );
+< 
+< 	if( ka_UserAuthenticateGeneral(KA_USERAUTH_VERSION,
+---
+> 	if( ka_UserAuthenticateGeneral(KA_USERAUTH_VERSION+
+> 				       KA_USERAUTH_DOSETPAG,
+191d121
+< 		unlink(tktfilename);
+321d250
+< 	verify->def_gid = gid;

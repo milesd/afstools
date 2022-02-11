@@ -1,0 +1,6 @@
+#!/bin/sh
+MACHINE=nhmxw0
+
+command=`basename $0`
+
+rsh $MACHINE /usr/afsws/bin/$command $*

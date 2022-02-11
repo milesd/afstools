@@ -1,0 +1,12 @@
+#!/bin/sh
+MACHINE=nhmxw0
+
+command=`basename $0`
+
+base_dir=`pwd | cut -c1-4`
+if [ $base_dir = "/afs" ]
+then
+	rsh $MACHINE "cd `pwd`; /usr/afs/bin/$command $*"
+else
+	rsh $MACHINE /usr/afs/bin/$command $*
+fi

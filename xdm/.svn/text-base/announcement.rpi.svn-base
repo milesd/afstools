@@ -1,0 +1,29 @@
+To: Info-AFS@transarc.com
+Subject: Re: Question about AFS authentication and MacX 
+In-Reply-To: Your message of "Mon, 08 Feb 1993 20:50:14 CST."
+             <9302090250.AA08719@iastate.edu> 
+Date: Tue, 09 Feb 1993 00:14:05 EST
+From: Scanner <lucee@rpi.edu>
+
+>1.  We are booting Tektronix X-terminals from RS/6000's and using xdm to manage
+>    the displays.  Can anyone point me in the right direction to get xdm to 
+>    authenticate with AFS at login, so that users automatically have an AFS
+>    token when they are logged in?
+
+At RPI we have modified xdm to do this (and fixed some other things at
+the same time..)
+
+You can find our code in:
+
+	/afs/rpi.edu/campus/session/xdm/1.64c/distrib/src
+
+>2.  We are also using Macintosh computers running MacX to meet some of our 
+>    X-device needs.  Does anyone have experience getting MacX to authenticate
+>    with AFS at login?
+
+We have modifed rexecd to do the right thing (well, relatively.. I am
+still not happy at a clear-text connection passing your passwrod
+around.. but who can modify macX...)  I have forwarded your message to
+the person who did that work.
+
+--Scanner	(scanner@rpi.edu)

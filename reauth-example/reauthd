@@ -1,0 +1,9 @@
+# This script sleeps, then wakes up and re-klogs. The sleep time is
+# intentionally set higher than the token lifetime for testing purposes.
+
+echo  REAUTHD started at `date`
+while ( 1 )
+  sleep 900      # 15 minutes
+  cat /tmp/.pwd | /usr/afsws/bin/klog afs_root -pipe -lifetime 00:10:00
+  echo REAUTHD restored tokens
+end

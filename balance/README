@@ -1,0 +1,17 @@
+This is a distribution of Balance v1.1a
+
+Author: Dan Lovinger
+
+	NOTE: Dan is leaving CMU at the end of May. While he will still
+	be reachable at his old address for a good long time to come,
+	all general communication should be directed to:
+
+Contact: Derrick Brashear, shadow+@andrew.cmu.edu
+
+Files of note:
+
+	balance.doc - introduction and general documentation
+	example.cf  - an example configuration file (our
+		config for the andrew cell user servers)
+		
+see CHANGES in balance.doc for differences from 1.1 -> 1.1a

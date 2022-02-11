@@ -1,0 +1,31 @@
+# Makefile for ucsdb
+
+CC=@CC@
+INSTALL=@INSTALL@
+
+VOS=@VOS@
+FS=@FS@
+
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+
+srcdir=@srcdir@
+bindir=${exec_prefix}/bin
+mandir=${prefix}/man
+man8dir=${mandir}/man8
+
+all: ucsdb
+
+install: all
+	${srcdir}/mkinstalldirs ${bindir} ${man8dir}
+	${INSTALL} ucsdb ${bindir}
+	${INSTALL} ucsdb.man ${man8dir}/ucsdb.8
+
+clean:
+	rm -f *.o a.out core
+
+distclean: clean
+	rm -f ucsdb config.h config.status config.log config.cache Makefile
+
+ucsdb: ucsdb.o csdb_operations.o flags.o
+	$(CC) ${CFLAGS} -o ucsdb ucsdb.o csdb_operations.o flags.o

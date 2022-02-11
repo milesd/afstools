@@ -1,0 +1,45 @@
+This program will be built directly on the libfsprobe.a layer.  There
+is no need to use libgtx.a (gator) because it only currently provides
+curses support and does not actually do any monitoring.
+
+Have a config file that specifies what servers to monitor and the
+exact thresholds for each.  I'd like some more input on the config
+file since it is the true interface to what the program will monitor.
+
+Automatically update daily by re-reading the config file if it has
+changed.  Also, allow for a manual re-read.  Because this will force a
+shutdown and restart of fsprobe_Init(), all previous data will be
+reset and should probably store previous data in a log file.  May want
+to do this daily, anyway.
+
+Allow the user to force an immediate probe since this functionality is
+allowed by the given library.
+
+The program would almost certainly be button-driven rather than
+menu-driven.
+
+Create three modes:
+	supervisor mode:
+		A general "everything's okay/not okay" indicator.
+		This would be a small window.  As soon as something
+		became "not okay", the window would expand and switch
+		to trouble mode.  If something is already "not okay",
+		and something new happened, it would still switch to
+		trouble mode.
+
+	trouble mode:
+		This would be a grid containing the names of all
+		currently monitored servers.  This mode would bring up
+		details on all current sources of trouble.  If a
+		server is having any sort of problems, its name would
+		be highlighted and any associated data would be
+		displayed.  It would cover most of the screen in order
+		to attract attention.
+
+	nitpicker mode:
+		Give stats on everything.  This would display pretty
+		much everything about every server under observation.
+
+	In addition, there would be an event log window with a scroll
+	bar recording what and when things went wrong/got better.
+

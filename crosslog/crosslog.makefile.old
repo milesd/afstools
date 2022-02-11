@@ -1,0 +1,19 @@
+PROGRAMS=crosslog
+
+SYS = pmax_ul43
+#SYS = `sys`
+AFSDIR = /afs/transarc.com/project/fs/dev/afs/3.3/.stable/$(SYS)/dest
+# AFSDIR = /usr/afsws
+AFSLIBDIR = $(AFSDIR)/lib
+AFSLIBS = -L$(AFSLIBDIR) -L$(AFSLIBDIR)/afs  -lkauth -lprot -lubik \
+		-lauth -lrxkad -lsys -ldes -lrx -llwp -lcom_err -laudit \
+		$(AFSLIBDIR)/afs/util.a
+INCLUDES = -I$(AFSDIR)/include -I$(AFSDIR)/include/afs
+
+LDFLAGS = $(AFSLIBS) $(XLDFLAGS)
+CFLAGS = $(INCLUDES) -g -D_NO_PROTO
+
+all: $(PROGRAMS)
+	cp $(PROGRAMS) /tmp
+
+.c: ; $(CC) $(CFLAGS) $@.c $(LDFLAGS) -o $@

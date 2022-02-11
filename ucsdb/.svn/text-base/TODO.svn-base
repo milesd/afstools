@@ -1,0 +1,20 @@
+Replace system() by exec().
+
+Use getopt() for option parsing.
+
+If local CellServDB does not exist, create it.
+
+Look if mount point already exists.
+
+Handle duplicate entries in one file as well.
+
+No check for correct mount points in /afs. -m and -u synchronize only
+with CellServDB, not with actual directory of mount points.
+
+Perform some operation on the old file. (Prior to overwrite.)
+Mv, cp, rm, ci,... come to mind. This should be configurable at
+runtime.
+
+Support multiple extension files.
+
+Put all those parameters in a configuration file.

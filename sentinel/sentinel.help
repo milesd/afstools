@@ -1,0 +1,38 @@
+sentinel*background:		color
+sentinel*borderColor:		color
+sentinel*borderWidth:		width
+sentinel*configFile:		file
+sentinel*font:			font
+sentinel*foreground:		color
+sentinel*initialWindow:		window
+sentinel*logFile:		file
+sentinel*logGeometry:		geometry
+sentinel*logVisible:		boolean
+sentinel*nitpickerGeometry:	geometry
+sentinel*probeDelay:		int
+sentinel*supervisorGeometry:	geometry
+sentinel*troubleBackground:	color
+sentinel*troubleForeground:	color
+sentinel*troubleGeometry:	geometry
+
+-bg <color>		background
+-background <color>	background
+-bw <width>		borderWidth
+-borderwidth		borderWidth
+-config <file>		configFile
+-fn <font>		font
+-font <font>		font
+-fg <color>		foreground
+-foreground <color>	foreground
+-nitpicker		initialWindow
+-trouble		initialWindow
+-supervisor		initialWindow
+-logfile <file>		logFile
+-lgeometry <geom>	logGeometry
+-log			logVisible
+-ngeometry <geom>	nitpickerGeometry
+-delay <int>		probeDelay
+-sgeometry <geom>	supervisorGeometry
+-tbg <color>		troubleBackground
+-tfg <color>		troubleForeground
+-tgeometry <geom>	troubleGeometry

@@ -1,0 +1,329 @@
+#!/usr/local/bin/expect -f
+#
+# Copyright (c) 1994 University of Michigan.  All rights reserved.  Profit
+# reproduction prohibited.  Non-profit reproduction and distribution allowed
+# and encouraged.  Although this program has been tested, no warranty, express
+# or implied, is made by the University of Michigan, as to the accuracy and
+# functioning of the program and related progam material, nor shall the fact
+# of distribution constitute any such warranty, and no responsibility is
+# assumed by the University of Michigan in connection herewith.
+# Original coding by Mark Giuffrida (markg@umich.edu) March 1994 on an rs6000
+# running aix 3.2.5.
+
+#
+# Global variables
+#
+set Logdir      "/usr/afs/logs/backuplabels"
+set Lastcname   "lastchecked"
+set Lastchecked "${Logdir}/${Lastcname}"
+set CartSize    10
+set Printlabels 0
+set Ntapes      0
+set Checklabel  ""
+set IFSteam     "ifs.backup.reports@umich.edu"
+set Prtcmd	"/bin/qprt"
+set Prtprimary	"lp0"
+set Prtsecond	"lp1"
+set Yes 	0
+set Firstfile   ""
+set Show	0
+
+#
+# Get y/n answer from user
+#
+proc getans { } {
+	global Yes
+
+	while {1} {
+		gets stdin answer
+		if {[string index $answer 0] == "y"} {
+			set Yes 1
+			break
+		}
+		if {[string index $answer 0] == "n"} {
+			set Yes 0
+			break;
+		}
+		send_user "Please answer 'y' or 'n': "
+		continue
+	}
+	return
+}
+
+#
+# Show contents of tape stacker
+#
+proc showstacker {} {
+	global tapenum CartSize stacker
+	send_user "\n"
+	send_user "Tape#    Date    Tape Cartridge Contents        DumpID\n"
+	send_user "=====    ====    =======================        ======\n"
+	send_user "\n"
+	send_user "                 -----------------------------\n"
+	for {set n $tapenum} {$n < $CartSize} {incr n} {
+		send_user "                 | <UNUSED>                  |\n"
+	}
+	for {set n 0} {$n < $tapenum} {incr n} {
+		set buf [format " %2d    %6s  | %-25s |  %-12s" [expr {$tapenum-$n}] $stacker($n,1) $stacker($n,0) $stacker($n,2)]
+		send_user "$buf\n"
+	}
+	send_user "                 -----------------------------\n"
+}
+
+#
+# Print the labels to the specified printer
+#
+proc printlabels { prt whichprt } {
+	global	Prtcmd stacker tapenum
+
+	send_user "\n"
+	send_user "Please power on the $whichprt printer.  Hit return when ready: "
+	gets stdin answer
+
+	set qprtFD [open "| ${Prtcmd} -P${prt}" w]
+	for {set n 0} {$n < $tapenum} {incr n} {
+		set buf1 [format "%-20s  %6s" $stacker($n,0) $stacker($n,1)]
+		set buf2 [format "DumpID=%s" $stacker($n,2)]
+		puts $qprtFD "${buf1}\n${buf2}\n\n\n\n\n\n\n"
+#		puts $qprtFD "${buf}\n${buf2}\n\n\n\n"
+	}
+	close $qprtFD
+	send_user "\n"
+	send_user "Labels are now queued to the $whichprt printer.  The labels should start\n"
+	send_user "printing within the next few seconds.  Wait for them to finish or until\n"
+	send_user "you are convinced they will not finish before continuing.\n"
+	return
+}
+
+
+#
+# Update file that contains last date stackers were changed
+#
+proc update_checkfile { s } {
+	global Lastchecked Firstfile
+
+	set rc [catch {set xfd [open $Lastchecked w]}]
+	if {$rc != 0} then {
+		send_user "**ERROR** Cannot rewrite lastchecked file '$Lastchecked'\n"
+		send_user "   There will be problems the next time labels are printed.\n"
+		send_user "   This program will automatically notify the backup team.\n"
+		catch {exec /bin/hostname} hostname
+		set mailtext "Cannot update '$Lastchecked' for server $hostname"
+		catch {exec /bin/echo $mailtext | /bin/mail -s "label lastchecked file writing problem" $IFSteam}
+		return
+	}
+	puts $xfd "$Firstfile"
+	close $xfd
+	if { $s == "quiet" } {
+		return
+	}
+	send_user "\n\n"
+	send_user "Please apply the labels and reload the tape stacker.\n"
+	send_user "Also be sure to power off the printers.\n"
+	return
+}
+
+
+
+#
+# MAIN
+#
+
+
+#
+# Check arguments
+#
+set argc [llength $argv]
+if {$argc > 2} {
+        send_user "Syntax: [lindex $argv 0] \[ <number_tapes_used> | show \]\n"
+        exit 1
+}
+if {$argc == 2} {
+	if { [lindex $argv 1] == "show" } {
+		set Show 1
+	} else {
+		set Ntapes [lindex $argv 1]
+		if {$Ntapes > $CartSize} {
+			send_user "**ERROR** Specified tape count '$Ntapes' is not a number or\n"
+			send_user "   is larger than the $CartSize tape capacity of cartridge\n"
+       		 	exit 1
+		}
+	}
+}
+
+
+#
+# Make sure backups are not currently in progress.
+#
+if {! $Show} {
+	catch {exec ps ax | grep bumonitor | grep -v grep | wc -l} n
+	regsub -all " " $n "" n
+	if { $n > 0 } {
+       	 send_user "Backups are currently in progress, please try again later\n"
+       	 exit 1
+	}
+}
+
+
+#
+# If number of tapes was not specified, then processing will
+# occur until the last time labels were saved.  First get
+# the label last saved so we can check against it.
+#
+if {$Ntapes == 0} {
+	set rc [catch {set fd [open $Lastchecked r]}]
+	if {$rc != 0} then {
+		send_user "**WARNING** Lastchecked history file '$Lastchecked'\n"
+		send_user "   does not exist -- recreating.\n"
+		set rc [catch {set fd [open $Lastchecked w]}]
+		if {$rc != 0} then {
+			send_user "**ERROR** Cannot open file to initialize.\n"
+			exit 1
+		}
+		puts $fd " "
+		close $fd
+	} else {
+		gets $fd fdbuf
+		set rc [scan $fdbuf "%s" Checklabel]
+		close $fd
+	}
+}
+
+
+#
+# Get list of logfiles
+#
+set rc [catch {exec csh -c "ls -1t $Logdir/* | grep -v $Lastcname"} fnames]
+regsub -all "\n" $fnames " " fnames
+if {$rc != 0} {
+	send_user "**ERROR** There are no backup logs\n"
+	exit 1
+}
+set nfiles [llength $fnames]
+set Firstfile [lindex $fnames 0]
+
+
+# 
+# Cycle through the logfiles and extract out the labels
+#
+for {set n 0; set tapenum 0} {$n < $nfiles} {incr n} {
+	set curfile [lindex $fnames $n]
+	set curdate [file root [file tail $curfile]]
+	set curdate "[string range $curdate 0 1]-[string range $curdate 2 3]-[string range $curdate 4 5]"
+	if {$tapenum > 10} {
+		send_user "**WARNING** There is something wrong with the lastchecked history file\n"
+		send_user "   '$Lastchecked'.  Only the last 10 tapes will be listed.\n"
+		break
+	}
+	if {$Ntapes == 0 && $curfile == $Checklabel} {
+		break
+	}
+	set filetail [file tail $curfile]
+	if {[string match "*.*.*" $filetail]} {
+		set i [string first "." $filetail]
+		incr i
+		set j [string last "." $filetail]
+		set j [expr {$j-1}]
+		set ThisDumpID "[string range $filetail $i $j]"
+	} else {
+		set ThisDumpID "?"
+	}
+	set rc [catch {set fd [open $curfile r]}]
+	if {$rc != 0} then {
+		send_user "**ERROR** Cannot open logfile '$curfile'\n"
+		exit 1
+	}
+	while {! [eof $fd]} {
+		gets $fd fdbuf
+		set rc [scan $fdbuf "%s %s" dummy stacker($tapenum,0)]
+		set stacker($tapenum,1) $curdate
+		set stacker($tapenum,2) $ThisDumpID
+		if {$rc == -1} break
+		incr tapenum
+	}
+	close $fd
+	if {$Ntapes != 0 && $tapenum == $Ntapes} break
+	if {$Ntapes != 0 && $tapenum > $Ntapes} {
+		send_user "\n"
+		send_user "**WARNING** The last $Ntapes tape(s) end in the middle of a backup.\n"
+		send_user "Please carefully check the dates against the logbook for a discrepency.\n"
+		break
+	}
+}
+if {$Ntapes != 0 && $tapenum < $Ntapes} {
+	send_user "\n"
+	send_user "**WARNING** Not enough backup history to list $Ntapes tapes.\n"
+	send_user "Please carefully check the dates against the logbook for a discrepency.\n"
+}
+
+
+#
+# Print out the results unless "show" was specified
+#
+showstacker
+if { $Show } {
+	exit 0
+}
+send_user "\n"
+send_user "Print labels? \[y\] "
+gets stdin answer
+if {$answer == "" || [string index $answer 0] == "y"} {
+
+	printlabels $Prtprimary PRIMARY
+	send_user "\n"
+	send_user "Did the labels print successfully (y/n)? "
+	getans
+	if {$Yes} {
+		update_checkfile verbose
+	} else {
+		while {1} {
+			send_user "\n"
+			send_user "Retry on PRIMARY printer (y/n)? "
+			getans
+			if {$Yes} {
+				printlabels $Prtprimary PRIMARY
+				send_user "\n"
+				send_user "Did the labels print successfully (y/n)? "
+				getans
+				if {$Yes} {
+					update_checkfile verbose
+					break
+				}
+				continue
+			}
+			send_user "\n"
+			send_user "Retry on SECONDARY printer (y/n)? "
+			getans
+			if {$Yes} {
+				printlabels $Prtsecond SECONDARY
+				send_user "\n"
+				send_user "Did the labels print successfully (y/n)? "
+				getans
+				if {$Yes} {
+					send_user "\n"
+					send_user "Is PRIMARY printer malfunctioning (y/n)? "
+					getans
+					if {$Yes} {
+						set mailtext "Check PRIMARY tape backup label printer"
+						catch {exec /bin/echo $mailtext | /bin/mail -s "backup label printing problem" $IFSteam}
+					}
+					update_checkfile verbose
+					break
+				}
+				continue
+			}
+			set mailtext "Check all tape backup label printers"
+			catch {exec /bin/echo $mailtext | /bin/mail -s "backup label printing problem" $IFSteam}
+			send_user "\n"
+			send_user "All attempts to print labels have appeared to fail.\n"
+			send_user "This program will automatically report the label printing\n"
+			send_user "problem by email to '$IFSteam'.\n"
+			send_user "You will need to hand write the labels.\n"
+			update_checkfile verbose
+			showstacker
+			break
+		}
+	}
+}
+
+exit 0

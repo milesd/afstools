@@ -1,0 +1,614 @@
+--- ../orig/Imakefile -------------------------------------------------
+4a5,9
+> #define HasAFS
+> 
+> #ifdef AIXArchitecture
+> #define BuildChooser YES
+> #else
+5a11
+> #endif
+26a33,49
+> #ifdef HasAFS
+> AFSLIBDIR  = /usr/afsws/lib/
+> AFSLIBS = ${AFSLIBDIR}afs/libkauth.krb.a ${AFSLIBDIR}libubik.a \
+>         ${AFSLIBDIR}afs/libprot.a \
+>         ${AFSLIBDIR}librxkad.a ${AFSLIBDIR}librx.a ${AFSLIBDIR}liblwp.a \
+>         ${AFSLIBDIR}afs/libauth.krb.a   ${AFSLIBDIR}afs/libsys.a  \
+>         ${AFSLIBDIR}librxkad.a ${AFSLIBDIR}libdes.a \
+>         ${AFSLIBDIR}afs/libcmd.a ${AFSLIBDIR}afs/libcom_err.a \
+>         ${AFSLIBDIR}afs/util.a
+> INCLUDES = -I/usr/afsws/include
+> EXTRA_DEFINES = -DAFS
+> #else
+> AFSLIBS=
+> #endif
+> 
+> CDEBUGFLAGS = -g
+> 
+31c54
+< LOCAL_LIBRARIES = XawClientLibs $(XAUTHLIB) $(XDMCPLIB) $(RPCLIB)
+---
+> LOCAL_LIBRARIES = XawClientLibs $(XAUTHLIB) $(XDMCPLIB) $(RPCLIB) $(AFSLIBS)
+48,49c71,72
+<        DEPLIBS3 = XawClientDepLibs $(TOP)/lib/Xdmcp/libXdmcp.a
+<           LIBS3 = XawClientLibs $(TOP)/lib/Xdmcp/libXdmcp.a
+---
+>        DEPLIBS3 = XawClientDepLibs 
+>           LIBS3 = XawClientLibs -lXdmcp
+
+--- ../orig/Login.c -------------------------------------------------
+81c81,87
+< 	offset(allow_access), XtRImmediate, False }
+---
+> 	offset(allow_access), XtRImmediate, False },
+>     {XtNadditionalMessage, XtCAdditionalMessage, XtRString, sizeof (char *),
+>         offset(message), XtRString, ""},
+>     {XtNmessageFont, XtCFont, XtRFontStruct, sizeof (XFontStruct *),
+>         offset(messageFont), XtRString, "*-new century schoolbook-bold-r-normal-*-180-*"},
+>     {XtNmessageColor, XtCForeground, XtRPixel, sizeof (Pixel),
+> 	offset(messagepixel), XtRString,	"Black"}
+99a106,109
+> # define MESSAGE_X_INC(w) ((w)->login.messageFont->max_bounds.width)
+> # define MESSAGE_Y_INC(w) ((w)->login.messageFont->max_bounds.ascent +\
+> 			   (w)->login.messageFont->max_bounds.descent)
+> 
+135a146,152
+> # define MESSAGE_X(w)   ((w->core.width - XTextWidth (w->login.messageFont,\
+> 			     w->login.message, strlen(w->login.message)))/2)
+> # define MESSAGE_Y(w)	(GREET_Y(w) + 2 + MESSAGE_Y_INC(w) +\
+> 			 w->login.messageFont->max_bounds.ascent)
+> # define MESSAGE_W(w)	(XTextWidth (w->login.greetFont,\
+> 			 w->login.message,strlen(w->login.message)))
+> 
+296a314,316
+>     XDrawString (XtDisplay (w), XtWindow (w), w->login.messageGC,
+>     		 MESSAGE_X(w),MESSAGE_Y(w),
+> 		 w->login.message, strlen(w->login.message));
+754a775,784
+>     xvaluemask = valuemask;
+>     if (w->login.messageFont == NULL )
+>         w->login.messageFont = w->login.font;
+>     else
+> 	xvaluemask |= GCFont;
+> 
+>     myXGCV.foreground = w->login.messagepixel;
+>     myXGCV.font = w->login.messageFont->fid;
+>     w->login.messageGC = XtGetGC (gnew, xvaluemask, &myXGCV);
+> 
+798a829
+>     XtReleaseGC(gw, w->login.messageGC);
+
+--- ../orig/Login.h -------------------------------------------------
+65a66,68
+> # define XtNadditionalMessage	"additionalMessage"
+> # define XtNmessageFont		"messageFont"
+> # define XtNmessageColor	"messageColor"
+74a78
+> # define XtCAdditionalMessage	"AdditionalMessage"
+
+--- ../orig/LoginP.h -------------------------------------------------
+40a41
+> 	Pixel		messagepixel;   /* message pixel */
+46a48
+> 	GC		messageGC;
+51a54
+> 	char		*message;	/* The additional message text */
+55a59
+> 	XFontStruct	*messageFont;	/* font for the additional message */
+
+--- ../orig/choose.c -------------------------------------------------
+29a30,61
+>  *
+>  * lucee
+>  * Exp
+>  *
+>  * History:
+>  * choose.c,v 1.3 1992/09/18 19:04:56 lucee Exp
+>  *
+>  * choose.c,v
+>  * Revision 1.3  1992/09/18  19:04:56  lucee
+>  * The chooserFd on sun's would mess up when a user on the local machine quit
+>  * ytalk. The chooserFd would get an exception. xdm would do an accept on the
+>  * fd.  The accept would fail with a "Software caused connection abort."
+>  * xdm would log an error, and return.. try to accept again.. log an error
+>  * return.. filling up /var with error messages.
+>  *
+>  * I never really traced this one down and don't have the time to do so, so I
+>  * put this kludge in: When the fd errors out with this error, close the
+>  * fd and reopen it. Perhaps I should have it do it for other errors as well?
+>  *
+>  * Revision 1.2  1992/09/11  19:14:44  lucee
+>  * Fixed one LogError statement for failed Chooser connections to also
+>  * print out the system error message so we'll have an idea of _why_
+>  * it's failing by spewing forty thousand times and filling up /var
+>  *
+>  * Fixed the default group assignemnt to instead of assigning it to
+>  * group[0] which may be a pag to be a new variable def_gid which is
+>  * specifically for holding the default group.
+>  *
+>  * Added some RCS variable substition flags.
+>  *
+>  * Changed the Imakefile to build the chooser for rs/6000's.
+>  *
+35a68,69
+> static char rcsid[] = "/campus/.cvsroot/session/xdm/choose.c,v 1.3 1992/09/18 19:04:56 lucee Exp";
+> 
+41a76
+> # include       <errno.h>
+42a78,79
+> extern char *sys_errlist[];
+> 
+346c383,388
+< 	LogError ("Cannot accept chooser connection\n");
+---
+> 	LogError ("Cannot accept chooser connection: %s\n",sys_errlist[errno]);
+> 	if( errno == ECONNABORTED ) {
+> 	   Debug("Recreating chooser fd\n");
+> 	   CloseChooserSocket();
+> 	   CreateChooserSocket();
+> 	}
+
+--- ../orig/dm.c -------------------------------------------------
+25a26
+> # include       "version.h"
+87a89,97
+> 
+>     /* change dir to / so that core files get dumped there.. */
+>     /* Should be temp when debugging? */
+>     if( debugLevel == 0 ) {
+>        chdir("/");
+>     } else {
+>        chdir("/tmp");
+>     }
+> 
+405,407c415,425
+< 		Debug ("Display exited with unknown status %d\n", waitVal(status));
+< 		LogError ("Unknown session exit code %d from process %d\n",
+< 			  waitVal (status), pid);
+---
+> 		Debug ("dm.c: WaitForChild: Display exited with unknown status %d\n", waitVal(status));
+> 
+> 		if(WIFSTOPPED(status)) {
+> 		   LogError("dm.c: WaitForChild: Child pid %d stopped with signal %d\n",pid, WSTOPSIG(status));
+> 		} else if(WIFSIGNALED(status)) {
+> 		   LogError("dm.c: WaitForChild: Child pid %d terminated with signal %d\n",pid,WTERMSIG(status));
+> 		} else if(WIFEXITED(status)) {
+> 		   LogError("dm.c: WaitForChild: Child pid %d exited with value %d\n",pid,WEXITSTATUS(status));
+> 		} else {
+> 		   LogError("dm.c: WaitForChild: Child pid %d strange termination: %d\n",pid,status);
+> 		}
+413c431,432
+< 		LogError ("Display %s cannot be opened\n", d->name);
+---
+> 		LogError ("Display %s cannot be opened, try %d of %d\n",
+> 			  d->name,d->startTries, d->startAttempts);
+568a588
+> 	setpag();
+
+--- ../orig/dm.h -------------------------------------------------
+245a246
+> 	GID_T           def_gid;         /* Default GID */
+
+--- ../orig/error.c -------------------------------------------------
+4c4
+<  * $XConsortium: error.c,v 1.12 91/04/02 11:56:56 rws Exp $
+---
+>  * $XConsortium: error.c,v 1.11 89/10/31 14:31:10 keith Exp $
+18a19,22
+>  *
+>  * Change history:
+>  * 910212   Scanner (scanner@rpi.edu) -- Change from logging to a file to
+>  *                                       logging via syslog as well.
+26a31,33
+> #ifndef USESYSLOG
+> #define USESYSLOG
+> #endif
+29a37,38
+> #ifdef USESYSLOG
+> # include <syslog.h>
+30a40,44
+> #ifndef SYSLOGIDENT
+> #define SYSLOGIDENT "xdm"
+> #endif
+> #endif /* USESYSLOG */
+> 
+33,43c47,63
+< 	int	i;
+< 	if (errorLogFile[0]) {
+< 		i = creat (errorLogFile, 0666);
+< 		if (i != -1) {
+< 			if (i != 2) {
+< 				dup2 (i, 2);
+< 				close (i);
+< 			}
+< 		} else
+< 			LogError ("Cannot open errorLogFile %s\n", errorLogFile);
+< 	}
+---
+>    int	i;
+> 
+> #ifdef USESYSLOG
+>    /* Make our connection to the syslogd */
+>    openlog( SYSLOGIDENT, LOG_PID, LOG_LOCAL2 );
+> #endif /* USESYSLOG */
+> 
+>    if (errorLogFile[0]) {
+>       i = creat (errorLogFile, 0666);
+>       if (i != -1) {
+> 	 if (i != 2) {
+> 	    dup2 (i, 2);
+> 	    close (i);
+> 	 }
+>       } else
+> 	 LogError ("Cannot open errorLogFile %s\n", errorLogFile);
+>    }
+53a74,77
+> 
+> #ifdef USESYSLOG
+>     syslog(LOG_INFO, fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+63a88,90
+> #ifdef USESYSLOG
+>     syslog(LOG_ERR, fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+72a100,102
+> #ifdef USESYSLOG
+>     syslog(LOG_CRIT,fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+82a113,115
+> #ifdef USESYSLOG
+>     syslog(LOG_ERR, fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+106a140,142
+> #ifdef USESYSLOG
+> 	syslog(LOG_DEBUG, fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+
+--- ../orig/session.c -------------------------------------------------
+92c92,94
+<     LogError("fatal IO error %d (%s)\n", errno, s);
+---
+> /*    if( errno != EPIPE ) {  */
+>        LogError("fatal IO error %d (%s)\n", errno, s);
+> /*    } */
+368a371
+>     int kount;
+385,386c388,394
+< 
+< 	setgid (verify->groups[0]);
+---
+> 	Debug("StartSession: User's group: %d, group list: ",verify->def_gid);
+> 	for( kount = 0; kount < verify->ngroups; kount++ ) {
+> 	   Debug("%d ",verify->groups[kount]);
+> 	}
+> 	Debug("\n");
+> 	
+> 	setgid (verify->def_gid);
+388a397
+> 	Debug("StartSession: User's group: %d\n",verify->def_gid);
+
+--- ../orig/socket.c -------------------------------------------------
+40a41,65
+> CloseChooserSocket ()
+> {
+>    if( chooserFd == -1 ) {
+>       return;
+>    }
+> 
+>    close( chooserFd );
+>    FD_CLR (chooserFd, &WellKnownSocketsMask );
+> }
+> 
+> CreateChooserSocket ()
+> {
+>     chooserFd = socket (AF_INET, SOCK_STREAM, 0);
+>     Debug ("Created chooser socket %d\n", chooserFd);
+>     if (chooserFd == -1)
+>     {
+> 	LogError ("chooser socket creation failed\n");
+> 	return;
+>     }
+>     listen (chooserFd, 5);
+>     if (chooserFd > WellKnownSocketsMax)
+> 	WellKnownSocketsMax = chooserFd;
+>     FD_SET (chooserFd, &WellKnownSocketsMask);
+> }
+>    
+72,82c97
+<     chooserFd = socket (AF_INET, SOCK_STREAM, 0);
+<     Debug ("Created chooser socket %d\n", chooserFd);
+<     if (chooserFd == -1)
+<     {
+< 	LogError ("chooser socket creation failed\n");
+< 	return;
+<     }
+<     listen (chooserFd, 5);
+<     if (chooserFd > WellKnownSocketsMax)
+< 	WellKnownSocketsMax = chooserFd;
+<     FD_SET (chooserFd, &WellKnownSocketsMask);
+---
+>     CreateChooserSocket();
+
+--- ../orig/streams.c -------------------------------------------------
+40a41,65
+> CloseChooserSocket ()
+> {
+>    if( chooserFd == -1 ) {
+>       return;
+>    }
+> 
+>    close( chooserFd );
+>    FD_CLR (chooserFd, &WellKnownSocketsMask );
+> }
+> 
+> CreateChooserSocket ()
+> {
+>     chooserFd = t_open ("/dev/tcp", O_RDWR, NULL);
+>     Debug ("Created chooser fd %d\n", chooserFd);
+>     if (chooserFd == -1)
+>     {
+> 	LogError ("chooser stream creation failed\n");
+> 	t_error("t_open chooser");
+> 	return;
+>     }
+>     if (chooserFd > WellKnownSocketsMax)
+> 	WellKnownSocketsMax = chooserFd;
+>     FD_SET (chooserFd, &WellKnownSocketsMask);
+> }
+> 
+93,103d117
+<     chooserFd = t_open ("/dev/tcp", O_RDWR, NULL);
+<     Debug ("Created chooser fd %d\n", chooserFd);
+<     if (chooserFd == -1)
+<     {
+< 	LogError ("chooser stream creation failed\n");
+< 	t_error("t_open chooser");
+< 	return;
+<     }
+<     if (chooserFd > WellKnownSocketsMax)
+< 	WellKnownSocketsMax = chooserFd;
+<     FD_SET (chooserFd, &WellKnownSocketsMask);
+
+--- ../orig/verify.c -------------------------------------------------
+38a39,52
+> #include <errno.h>
+> 
+> extern char *sys_errlist[];
+> 
+> #ifdef AFS
+> /* AFS Kerberos includes */
+> #include <afs/kautils.h>
+> #define NOPAG  0xffffffff
+> #ifndef TKTFILE_ENV_VAR
+> #define TKTFILE_ENV_VAR "KRBTKFILE"
+> #define TKTFILE_NAME_LEN  256
+> #endif
+> #endif
+> 
+64a79,136
+> #ifdef AFS
+> /**************************************************************************
+>  * PutTKTFileInEnv()
+>  *
+>  * This routine adds the environment variable "KRBTKFILE" to the
+>  * environment of xdm.  It attempts to use a unique name in /tmp
+>  * for this. The main purpose of this is so that we will write
+>  * a Ticket Granting ticket file in a certain place and so later processes
+>  * will know where this is by consulting the environment.
+>  */
+> static void
+>    PutTKTFileInEnv( userUID, userGID, tktfilename )
+> uid_t  userUID;
+> gid_t  userGID;
+> char   tktfilename[TKTFILE_NAME_LEN];
+> {
+>    int    scratch;
+>    char   *tktenvent;
+>    int    tmpfd;
+> 
+>    strcpy( tktfilename, "/tmp/xdmtktXXXXXX" );
+> 
+>    if((tmpfd = mkstemp(tktfilename)) == -1) {
+>       LogError("TKTEnv: Unable to make temporary file name\n");
+>       return;
+>    }
+> 
+>    if(fchown(tmpfd, userUID, userGID) == -1) {
+>       LogError("TKTEnv: Unable to chown file to uid/gid %d/%d: %s\n",
+> 	       userUID,userGID,sys_errlist[errno]);
+>       close(tmpfd);
+>       unlink(tktfilename);
+>       return;
+>    }
+> 
+>    close(tmpfd);
+>    scratch = strlen(TKTFILE_ENV_VAR)+strlen(tktfilename)+2;
+> 
+>    if((tktenvent = (char*)malloc(sizeof(char)*scratch)) == NULL) {
+>       LogError("TKTEnv: Unable to malloc for env. var %s (%s): %s\n",
+> 	       TKTFILE_ENV_VAR,tktfilename,sys_errlist[errno]);
+>       unlink(tktfilename);
+>       return;
+>    }
+>    
+>    sprintf(tktenvent,"%s=%s",TKTFILE_ENV_VAR,tktfilename);
+>    
+>    if(putenv(tktenvent)) {
+>       LogError("TKTEnv: Unable to expand environment for %s: %s\n",
+> 	       tktenvent,sys_errlist[errno]);
+>       return;
+>    }
+> 
+>    Debug("TKTEnv: Added \"%s\" to the environment.\n",tktenvent);
+> 
+> }
+> #endif /* AFS */
+> 
+77a150,153
+> #ifdef AFS
+> 	int reason;     /* AFS Authenticate return code */
+> 	char            tktfilename[TKTFILE_NAME_LEN];
+> #endif
+78a155,159
+> 	if(strlen(greet->password) == 0 ) {
+> 	   Debug("Verify %s.. zero length password. Rejecting\n",greet->name);
+> 	   return 0;
+> 	}
+> 
+92a174,184
+> #ifdef AFS
+> 	bzero(tktfilename, TKTFILE_NAME_LEN );
+> 	PutTKTFileInEnv( p->pw_uid, p->pw_gid, tktfilename );
+> 
+> 	if( ka_UserAuthenticateGeneral(KA_USERAUTH_VERSION,
+> 				       greet->name, "", 0, greet->password,
+> 				       0, 0, 0, &reason )) {
+> 	   /* Failed.. fallback to the passwd file */
+> 	   Debug("Verifying to AFS failed. Falling back to /etc/passwd\n");
+> 	   if(strcmp (crypt (greet->password, p->pw_passwd), p->pw_passwd))
+> #else
+94a187
+> #endif
+97a191
+> 		unlink(tktfilename);
+99a194,196
+> #ifdef AFS
+> 	}
+> #endif
+103a201,209
+> #ifdef AFS
+> 	/*
+> 	 * Here is where we have to be careful for the groups structure should
+> 	 * contain the PAG entries.  We need to preserve the PAG, set the
+> 	 * groups, and then put the PAG back into the group list.
+> 	 */
+> 	
+> 	getGroupsRetainPags (greet->name, verify, p->pw_gid);
+> #else
+104a211
+> #endif
+213a321
+> 	verify->def_gid = gid;
+235a344,465
+> 
+> #ifdef AFS
+> /*
+>  * The issue is that the user's groups should contain in the 1st 2 entries
+>  * the original pag obtained via the ka_UserAuthenticate call. Before
+>  * the ka_userAuthenticate call check the value of gr[0,1]; after the
+>  * call check it again and gr[0,1] should be different (because of the
+>  * setpag side effect). The danger is the pag maybe lost when the
+>  * login session initiates the groups which here happens originally in
+>  * the GetGroups func above (actually in the setgroups later on based
+>  * on the made up groups). After the program exits (you're in the
+>  * login shell) then make sure you still retain the groups (use the
+>  * 'groups' cmd to see if gr[0] & gr[1] are the same ones) See if
+>  * there is any difference in the groups between the 'good' logins and
+>  * the 'bad' ones later on. We use the code in RetainPags() below to
+>  * keep the pag in the 1st two entries 
+>  *
+>  */
+> 
+> static int
+>    get_pag_from_groups(g0, g1)
+> unsigned long g0, g1;
+> {
+>    unsigned long h, l, result;
+>    
+>    g0 -= 0x3f00;
+>    g1 -= 0x3f00;
+>    if (g0 < 0xc000 && g1 < 0xc000) {
+>       l = ((g0 & 0x3fff) << 14) | (g1 & 0x3fff);
+>       h = (g0 >> 14);
+>       h = (g1 >> 14) + h + h + h;
+>       result =  ((h << 28) | l);
+>       /* Additional testing */
+>       if (((result >> 24) & 0xff) == 'A')
+> 	 return result;
+>       else
+> 	 return NOPAG;
+>    }
+>    return NOPAG;
+> }
+> 
+> 
+> static void
+>    get_groups_from_pag(pag, g0p, g1p)
+> unsigned long pag;
+> unsigned long *g0p, *g1p;
+> {
+>    unsigned short g0, g1;
+>    
+>    pag &= 0x7fffffff;
+>    g0 = 0x3fff & (pag >> 14);
+>    g1 = 0x3fff & pag;
+>    g0 |= ((pag >> 28) / 3) << 14;
+>    g1 |= ((pag >> 28) % 3) << 14;
+>    *g0p = g0 + 0x3f00;
+>    *g1p = g1 + 0x3f00;
+> }
+> 
+> /**************************************************************************
+>  * getGroupsRetainPags()
+>  *
+>  * This routine saves the first two entries of this process's existing
+>  * group list in case they may identify a PAG that this process is in.
+>  *
+>  * It then sets the groups list in the verify structure to reflect what groups
+>  * the given user should be in when his session starts.
+>  *
+>  * Afterwards, if we actually pulled a PAG from the pre-existing groups list
+>  * add the PAG's group-representation to the list stored in the verify
+>  * structure for the user.
+>  */
+> 
+> static int
+>    getGroupsRetainPags(name, verify, gid)
+> char                  *name;
+> struct verify_info    *verify;
+> int                   gid;
+> {
+>    int         ngroups;
+>    int         pagval;
+>    int         j;
+> 
+>    verify->groups[0] = verify->groups[1] = 0;
+>    
+>    ngroups = getgroups(NGROUPS_MAX, verify->groups);
+>    Debug("RetainPags: Pre-existing first two groups: %d, %d\n",
+> 	 verify->groups[0], verify->groups[1]);
+>    
+>    pagval = get_pag_from_groups(verify->groups[0], verify->groups[1]);
+> 
+>    if( pagval == NOPAG ) {
+>       Debug("RetainPags: a PAG was not found in this processes groups\n");
+>    } else {
+>       Debug("RetainPags: The PAG %d was found in this process groups\n",
+> 	    pagval );
+>    }
+> 
+>    /*
+>     * Now we do the XDM call to fill the verify->groups structure with the
+>     * groups we want this user to have when his session starts
+>     */
+>    getGroups (name, verify, gid);
+> 
+>    /* Now, check to see if we saved an actual PAG value from the processes
+>     * group list.. if we did then we shift over verify->groups by two and
+>     * put the two group entries that correspond to the PAG back in.
+>     */
+>    if ( pagval != NOPAG ) {
+>       /* we will have to shift grouplist to make room for pag */
+>       if (verify->ngroups + 2 > NGROUPS_MAX) {
+> 	 LogError("RetainPags: Not enough room to re-insert the PAG into the group-list\n");
+> 	 return;
+>       }
+> 
+>       for (j = verify->ngroups - 1; j >= 0; j--) {
+> 	 verify->groups[j + 2] = verify->groups[j];
+>       }
+>       verify->ngroups += 2;
+>       get_groups_from_pag(pagval, &(verify->groups[0]), &(verify->groups[1]));
+>    }
+> }
+> #endif

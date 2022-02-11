@@ -1,0 +1,83 @@
+Here is some more information that we would like to get when you see
+cache corruption:
+
+- kdump from a client that is  seeing the problem
+- kdump from a client that is NOT seeing the problem
+
+- From the client seeing the problem, we want to get a hold of the
+ Vfiles for the directory entry of the parent that can't find the
+ file.
+
+To help find the Vfile for this, I am sending information on 2
+programs for you:
+
+- whatfid       The source file for whatfid.c can be found in the
+                venus directory of the latest source tree that you
+                brought over for the ports tree.  The Makefile in this
+                tree also can build it.
+
+- FindVFiles    I have placed the source code for FindVFiles.c in the
+                /afs/transarc.com/public/atd/cern/FindVFiles
+                I also included the build*.sh* files for this.
+                This file is just editted from dump_afscache.c
+
+Here is the instructions for getting the Vfiles for our files:
+
+These programs can take the place of doing
+                ls -li
+                calcfid
+
+To determine if the actual Vfile for the directory is corrupted, we
+can 
+do the following when this type of corruption happens again:
+
+- Use whatfid <path to parent dir>
+  This will return the FID information for the file
+
+- Use the above info and run FindVFiles <volume> <vnode> <CacheItems
+        location>
+
+  This will return the dump_afscache type output specific to this FID.
+  like dump_afscache, you must be root to run FindVFiles
+
+- Now copy these Vfiles noted by FindVFiles to some area so that we
+  can check them.
+
+- Get a copy of the file from a bad client and from a good client
+
+Example:  Lets assume that my .cshrc file is corrupt.  I would do the
+          following:
+
+[atd] whatfid ~atd/.cshrc
+/afs/transarc.com/usr/atd/.cshrc: 1:1969567046.4280.94076
+
+[atd] FindVFiles 1969567046 4280
+Searching For Volume=1969567046 -- Vnode=4280.
+3000 cache entries
+Local cell is transarc.com
+index [    cell    :   volume :   vnode]
+2492: [              user.atd :     4280] ino 2510 chunk   0 len
+5917 Time 840643207 States 0 DataVersion 0.24
+
+[atd] cp /usr/vice/cache/V2492 <some safe place>
+
+[atd] cp ~atd/.cshrc <some safe place>/.cshrc.BAD
+
+
+From another client
+[atd] cp ~atd/.cshrc <some safe place>/.cshrc.GOOD
+
+What we want to determine is if the V2492 file contains the chunk of
+0s.
+
+The syntax for FindVFiles is :
+
+ FindVFiles <volumeID> <vnode> <optional path to CacheItems>
+                                only if not in /usr/vice/Cache
+
+
+After, you do the trick to get the bad client in sync again, wait at
+least 1 minute before doing the whatfid/FindVFiles command to give the
+CacheItems file time to be updated.
+
+

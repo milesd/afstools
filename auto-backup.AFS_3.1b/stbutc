@@ -1,0 +1,69 @@
+#!/afs/awd/local/bin/perl
+
+require 'open2.pl';
+
+#subroutine to check to see if any input ready at the keyboard
+sub key_ready {
+    local($rin, $nfd);
+    vec($rin, fileno(STDIN), 1) = 1;
+    return $nfd = select($rin,undef,undef,0);
+}
+#subroutine to check to see if any input ready at the child pipe
+sub pipe_ready {
+    local($rin,$nfd);
+    vec($rin, fileno(RDR), 1) = 1;
+    return $nfd = select($rin,undef,undef,0);
+}
+
+$cmd = "/afs/awd/common/dev/src/afs31b/rs_aix31/dest/etc/butc @ARGV[0]";
+$child = &open2(RDR,WTR,$cmd);
+$pscmd = "ps -p$child";
+$tape1 = 1;
+$alive = 1;
+$prompt = 0;
+while ($alive) {
+   open(PS, "$pscmd|") || die "can't run $pscmd: $!";
+   while($_ = <PS>) {
+     if (/$child/) {
+       if(/defunct/) {
+         $alive = 0;
+         }
+     }
+   }
+  sleep 1;
+  $temp = &pipe_ready;
+
+  ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+        $atime,$mtime,$ctime,$blksize,$blocks)
+          = stat(RDR);
+  if ($temp) {
+    read(RDR, $_, $size);
+    print;
+    if (/done/) {
+      if ($tape1) {
+        print " the first tape \n";
+        print(WTR "\n");
+        $tape1 = 0;
+      } else {
+	if (@ARGV[0] eq ""){
+	  $cmd = "unload-tape /dev/rmt0";
+        } else {	  
+	  $cmd = "unload-tape /dev/rmt@ARGV[0]";
+        }
+	open(TAPE, "$cmd|") || die "can't run $cmd : $!";
+	print "Requesting tape change from stacker \n";
+	sleep 120;
+	print "Stacker ready passing enter to butc \n";
+
+	$temp = &pipe_ready;
+        ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+          $atime,$mtime,$ctime,$blksize,$blocks)
+            = stat(RDR);
+        read(RDR, $_, $size);
+
+	print(WTR "\n");
+      }
+    }
+  }
+}
+print "end of program\n";

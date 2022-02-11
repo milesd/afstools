@@ -1,0 +1,71 @@
+#
+#	@(#)Makefile	1.3	12/17/91
+#
+# Makefile for rpc.pcnfsd under AIX 3.2 with AFS authentication
+#
+
+BIN= rpc.pcnfsd
+TST= clnt.pcnfsd
+
+all: $(BIN) $(TST)
+
+SVR_OBJS=  pcnfsd_svc.o pcnfsd_xdr.o pcnfsd_v1.o \
+	pcnfsd_v2.o pcnfsd_misc.o pcnfsd_cache.o \
+	pcnfsd_print.o
+
+TST_OBJS= pcnfsd_clnt.o pcnfsd_test.o pcnfsd_xdr.o
+
+SVR_SRCS= $(SVR_OBJS:.o=.c)
+
+TST_SRCS= $(TST_OBJS:.o=.c)
+
+HDRS= pcnfsd.h common.h
+
+.KEEP_STATE:
+
+.INIT: $(HDRS)
+
+LINTFLAGS= -hbax
+
+AFSDIR= /usr/afsws
+AFSLIBDIR= $(AFSDIR)/lib
+AFSLIBS= -L$(AFSLIBDIR) -L$(AFSLIBDIR)/afs  -lkauth -lprot -lubik \
+		-lauth -lrxkad -lsys -ldes -lrx -llwp -lcom_err \
+		$(AFSLIBDIR)/afs/util.a
+INCLUDES= -I$(AFSDIR)/include
+
+# See common.h for the option definitions
+CFLAGS= -g -D_BSD -DOSVER_AIX32
+LIBS= -lrpcsvc $(AFSLIBS)
+
+pcnfsd_v1.o: pcnfsd_v1.c
+	cc $(CFLAGS) -c pcnfsd_v1.c $(INCLUDES)
+
+pcnfsd_v2.o: pcnfsd_v2.c
+	cc $(CFLAGS) -c pcnfsd_v2.c $(INCLUDES)
+
+$(BIN): $(SVR_OBJS)
+	cc -o $@ $(SVR_OBJS) $(LIBS)
+
+$(TST): $(TST_OBJS)
+	cc -o $@ $(TST_OBJS) $(LIBS)
+
+# install: $(BIN)
+#	install -d $(DESTDIR)/usr/etc
+#	install -s $(BIN) $(DESTDIR)/usr/etc
+
+# This works if /usr/local/etc is not in a replicated AFS volume
+install: $(BIN)
+	/usr/bin/install -f /usr/local/etc \
+	-O root -G mscadm -M 760 -S rpc.pcnfsd
+
+tags: $(SRCS)
+	ctags $(SVR_SRCS)
+
+lint: $(SRCS)
+	lint $(CFLAGS) $(LINTFLAGS) $(SVR_SRCS)
+	lint $(CFLAGS) $(LINTFLAGS) $(TST_SRCS)
+
+clean:
+	rm -f $(BIN) $(SVR_OBJS) $(TST) $(TST_OBJS)
+

@@ -1,0 +1,318 @@
+[atd] cd $PUB/atd/CacheConsistency
+
+===================
+== In this example, I will try to show you how to collect the data
+== that we need to help troubleshoot the cache problems that you are
+== seeing.  The first thing that you will need to do is to get copies
+== of the FindVFiles and whatfid programs.
+==
+== The source and build scripts can be found in the following area
+==
+==  /afs/tr/public/afs-contrib/tools/CacheDebugging
+==	[CacheDebugging] ls
+==	FindVFiles-build.sh*          whatfid-build.sh*
+==	FindVFiles-build.sh-solaris*  whatfid-build.sh-solaris*
+==	FindVFiles.c                  whatfid.c
+==
+== For this example, assume that the file:  ProblemFile is the 
+== corrupted file
+==
+== We will be collecting data from 
+==	- the affected client
+==	- the non-affected client
+==	- the fileserver serving the file
+===================
+
+===================
+== make some directories to collect the data
+===================
+
+# mkdir /afs/transarc.com/public/atd/CacheDataCollection
+# cd /afs/transarc.com/public/atd/CacheDataCollection
+# mkdir BadClient GoodClient FileServer
+# mkdir BadClient/BeforeFlushv BadClient/AfterFlushv
+
+===================
+== From the affected client
+== Get a copy of the bad file
+== and place it into the BadClient/BeforeFlushv area
+===================
+
+[CacheConsistency] pwd
+/afs/transarc.com/public/atd/CacheConsistency
+
+[CacheConsistency] ls -l
+total 2
+-rw-r--r--   1 atd      transarc     114 Dec 17 13:21 ProblemFile
+
+[CacheConsistency] cp ProblemFile $PUB/atd/CacheDataCollection/BadClient/BeforeFlushv
+
+===================
+== Use the whatfid program to get the AFS FID of the affected file and its
+== parent directory
+== Then use FindVFiles (must be root) to collect the cache VFiles for these
+== FIDs
+== copy the VFILES to the BadClient/BeforeFlushv area
+===================
+
+[CacheConsistency] /tmp/atd/whatfid . ./ProblemFile
+.: 1:1969567049.855.16922
+./ProblemFile: 1:1969567049.5880.16923
+
+[CacheConsistency] /tmp/atd/FindVFiles 1969567049 855
+Searching For Volume=1969567049 -- Vnode=855.
+6000 cache entries
+Local cell is transarc.com
+index [    cell    :   volume :   vnode]
+5726: [            public.atd :      855] ino 10815 chunk   0 len   2048 Time 850850393 States 0 DataVersion 0.6
+
+[CacheConsistency] cp /usr/vice/cache/V5726 $PUB/atd/CacheDataCollection/BadClient/BeforeFlushv
+
+[CacheConsistency] /tmp/atd/FindVFiles 1969567049 5880
+Searching For Volume=1969567049 -- Vnode=5880.
+6000 cache entries
+Local cell is transarc.com
+index [    cell    :   volume :   vnode]
+4697: [            public.atd :     5880] ino 12458 chunk   0 len    114 Time 850849340 States 0 DataVersion 0.1
+
+[CacheConsistency] cp /usr/vice/cache/V4697 $PUB/atd/CacheDataCollection/BadClient/BeforeFlushv
+
+===================
+== Get a kdump snapshot from the affected machine
+== Again, place the kdump output file in the BadClient/BeforeFlushv area
+===================
+
+[atd] /usr/vice/etc/kdump > $PUB/atd/CacheDataCollection/BadClient/BeforeFlushv/kdump.before-flushv
+
+===================
+== Collect some other information from the affected client
+== Determine the fileserver that is serving the bad file
+== get local cache statistics
+== get ip address of the affected machine
+===================
+
+[CacheConsistency] fs exam .
+Volume status for vid = 1969567049 named public.atd
+Current disk quota is 475000
+Current blocks used are 452248
+The partition has 341916 blocks available out of 2093056
+
+[CacheConsistency] fs whereis .
+File . is on host afs7.transarc.com 
+
+[CacheConsistency] fs getcache
+AFS using 56020 of the cache's available 60000 1K byte blocks.
+
+[CacheConsistency] df /usr/vice/cache
+Filesystem    512-blocks      Free %Used    Iused %Iused Mounted on
+/dev/lv00         163840     39488   76%     6018    30% /usr/vice/cache
+
+[CacheConsistency] hostname
+messier
+
+[CacheConsistency] grep messier /etc/hosts
+158.98.10.200 messier.transarc.com      messier         # IBM
+
+===================
+== Now get the information from the fileserver
+== ===========================================
+== Now determine which fileserver is serving this file and
+== get the callback information for this fileserver
+===================
+
+Now get the information from the fileserver
+============================================
+[CacheConsistency] fs whereis .
+File . is on host afs7.transarc.com 
+
+[CacheConsistency] fs exam .
+Volume status for vid = 1969567049 named public.atd
+Current disk quota is 475000
+Current blocks used are 452248
+The partition has 341916 blocks available out of 2093056
+
+[CacheConsistency] vos listvldb 1969567049
+
+public.atd 
+    RWrite: 1969567049    Backup: 1969567051
+    number of sites -> 1
+       server afs7.transarc.com partition /vicepv RW Site 
+
+[atd] cd /usr/afs/local
+
+[local] ps auxw | grep files
+root      9413  0.4  3.0 2888 2228      - S      Nov 13 220:03 /usr/afs/bin/fil
+root     22855  0.0  0.0   88  140  pts/7 S    14:29:38  0:00 grep files
+
+===================
+== Send the XCPU signal to the fileserver process (as root) and then
+== grab the files created in the /usr/afs/local directory
+== 	callback.dump
+==	clients.dump
+==	hosts.dump
+===================
+
+[local] kill -XCPU 9413
+
+[local] ls -lt *.dump
+-rw-rw-rw-   1 root     system    801396 Dec 17 14:29 callback.dump
+-rw-rw-rw-   1 root     system      1967 Dec 17 14:29 clients.dump
+-rw-rw-rw-   1 root     system      1000 Dec 17 14:29 hosts.dump
+
+===================
+== Place these files in the fileserver section
+===================
+
+[local] cp *.dump $PUB/atd/CacheDataCollection/FileServer
+
+===================
+== Sometimes, we even want to get a volinfo copy of the volume
+== This is really only necessary if the type of inconsistency has to
+== do with not being able to see a file in a directory.
+===================
+
+[local] /usr/afs/bin/volinfo -part /vicepv -volum 1969567049 -vnode -inode \
+	> $PUB/atd/CacheDataCollection/FileServer/volinfo.1969567049
+
+===================
+== Now to a good client
+== Start getting a copy of the file, a kdump and the cache files
+== and place the files in the appropriate directory
+====================
+
+[atd] cd $PUB/atd/CacheConsistency
+
+[CacheConsistency] pwd
+/afs/transarc.com/public/atd/CacheConsistency
+
+[CacheConsistency] ls -l
+total 2
+-rw-r--r--   1 atd      transarc     114 Dec 17 13:21 ProblemFile
+
+[CacheConsistency] cat ProblemFile > /dev/null
+
+[CacheConsistency] cp ProblemFile $PUB/atd/CacheDataCollection/GoodClient
+
+===================
+== Find the ache VFILES from the non-affected client
+===================
+
+[CacheConsistency] $PUB/atd/FindVFiles/whatfid . ./ProblemFile
+.: 1:1969567049.855.16922
+./ProblemFile: 1:1969567049.5880.16923
+
+[CacheConsistency] $PUB/atd/FindVFiles/FindVFiles 1969567049 855
+Searching For Volume=1969567049 -- Vnode=855.
+3000 cache entries
+Local cell is transarc.com
+index [    cell    :   volume :   vnode]
+2274: [            public.atd :      855] ino 2292 chunk   0 len   2048 Time 850851444 States 0 DataVersion 0.6
+
+[CacheConsistency] cp /usr/vice/cache/V2274 $PUB/atd/CacheDataCollection/GoodClient
+
+[CacheConsistency] $PUB/atd/FindVFiles/FindVFiles 1969567049 5880
+Searching For Volume=1969567049 -- Vnode=5880.
+3000 cache entries
+Local cell is transarc.com
+index [    cell    :   volume :   vnode]
+2688: [            public.atd :     5880] ino 2590 chunk   0 len    114 Time 850848956 States 0 DataVersion 0.1
+
+[CacheConsistency] cp /usr/vice/cache/V2688 $PUB/atd/CacheDataCollection/GoodClient
+
+===================
+== Get a kdump from the non-affected client
+===================
+
+[atd] /usr/vice/etc/kdump > $PUB/atd/CacheDataCollection/GoodClient/kdump.good-client
+
+
+===================
+== Now Back to the Bad Client
+== and flush the directory and volume and see if the correct version
+== of the file shows up.  Again, collect the same information from the
+== client as before, but save the data in the AfterFlushv directory.
+==========================
+
+[CacheConsistency] pwd
+/afs/transarc.com/public/atd/CacheConsistency
+
+[CacheConsistency] fs flushv .
+
+[CacheConsistency] ls -l
+total 2
+-rw-r--r--   1 atd      transarc     114 Dec 17 13:21 ProblemFile
+
+[CacheConsistency] cat ProblemFile > /dev/null
+
+[CacheConsistency] cp ProblemFile $PUB/atd/CacheDataCollection/BadClient/AfterFlushv
+
+===================
+== Collect the cache VFILES
+===================
+
+[CacheConsistency] $PUB/atd/FindVFiles/whatfid . ./ProblemFile
+.: 1:1969567049.855.16922
+./ProblemFile: 1:1969567049.5880.16923
+
+[CacheConsistency] $PUB/atd/FindVFiles/FindVFiles 1969567049 855
+Searching For Volume=1969567049 -- Vnode=855.
+6000 cache entries
+Local cell is transarc.com
+index [    cell    :   volume :   vnode]
+1373: [            public.atd :      855] ino 1391 chunk   0 len   2048 Time 850851693 States 0 DataVersion 0.6
+
+[CacheConsistency] cp /usr/vice/cache/V1373 $PUB/atd/CacheDataCollection/BadClient/AfterFlushv
+
+[CacheConsistency] $PUB/atd/FindVFiles/FindVFiles 1969567049 5880
+Searching For Volume=1969567049 -- Vnode=5880.
+6000 cache entries
+Local cell is transarc.com
+index [    cell    :   volume :   vnode]
+5144: [            public.atd :     5880] ino 6661 chunk   0 len    114 Time 850851693 States 0 DataVersion 0.1
+
+[CacheConsistency] cp /usr/vice/cache/V5144 $PUB/atd/CacheDataCollection/BadClient/AfterFlushv
+
+===============
+== Just checking out the data files that we collected
+===============
+
+[CacheDataCollection] pwd
+/afs/transarc.com/public/atd/CacheDataCollection
+
+[CacheDataCollection] ls -lR
+total 12
+drwxr-xr-x   4 atd      transarc    2048 Dec 17 14:21 BadClient/
+drwxr-xr-x   2 atd      transarc    2048 Dec 17 14:34 FileServer/
+drwxr-xr-x   2 atd      transarc    2048 Dec 17 14:40 GoodClient/
+./BadClient:
+total 8
+drwxr-xr-x   2 atd      transarc    2048 Dec 17 14:43 AfterFlushv/
+drwxr-xr-x   2 atd      transarc    2048 Dec 17 14:25 BeforeFlushv/
+
+./BadClient/AfterFlushv:
+total 8
+-rw-r--r--   1 atd      transarc     114 Dec 17 14:41 ProblemFile
+-rw-------   1 atd      transarc    2048 Dec 17 14:43 V1373
+-rw-------   1 atd      transarc     114 Dec 17 14:43 V5144
+
+./BadClient/BeforeFlushv:
+total 3328
+-rw-r--r--   1 atd      transarc     114 Dec 17 14:22 ProblemFile
+-rw-------   1 atd      transarc     114 Dec 17 14:24 V4697
+-rw-------   1 atd      transarc    2048 Dec 17 14:23 V5726
+-rw-r--r--   1 atd      transarc 1699840 Dec 17 14:25 kdump.before-flushv
+
+./FileServer:
+total 2100
+-rw-r--r--   1 atd      transarc  801396 Dec 17 14:29 callback.dump
+-rw-r--r--   1 atd      transarc    1967 Dec 17 14:30 clients.dump
+-rw-r--r--   1 atd      transarc    1000 Dec 17 14:30 hosts.dump
+-rw-r--r--   1 atd      transarc  270236 Dec 17 14:34 volinfo.1969567049
+
+./GoodClient:
+total 6334
+-rw-r--r--   1 atd      transarc     114 Dec 17 14:37 ProblemFile
+-rw-------   1 atd      transarc    2048 Dec 17 14:38 V2274
+-rw-------   1 atd      transarc     114 Dec 17 14:39 V2688
+-rw-r--r--   1 atd      transarc 3238184 Dec 17 14:40 kdump.good-client
+

@@ -1,0 +1,38 @@
+#!/bin/sh
+
+trap 'stty echo; /bin/rm -fr /tmp/kpasswd.$$' 0 1 2 3 4 5 6 7 8 10 12 13 14 15
+MACHINE=nhmxw0
+
+echo "Old Password: \c"
+stty -echo
+read opassword
+stty echo
+echo
+
+echo "New Password: \c"
+stty -echo
+read npassword1
+stty echo
+echo
+
+echo "Re-enter New Password: \c"
+stty -echo
+read npassword2
+stty echo
+echo
+
+if [ x"$npassword1" != x"$npassword2" ]
+then
+	echo "Mismatch - passowrd unchanged"
+	exit 1
+fi
+
+echo "#!/bin/sh" > /tmp/kpasswd.$$
+chmod 700 /tmp/kpasswd.$$
+echo "/usr/afsws/bin/kpasswd $LOGNAME -password $opassword -newpassword $npassword1" >> /tmp/kpasswd.$$
+
+
+rcp /tmp/kpasswd.$$ $MACHINE:/tmp/kpasswd.$$
+rsh $MACHINE /tmp/kpasswd.$$
+rm /tmp/kpasswd.$$
+rsh $MACHINE /bin/rm /tmp/kpasswd.$$

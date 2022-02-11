@@ -1,0 +1,25 @@
+percent-full 97
+blocks-avail 10000
+
+server vice1.fs.andrew.cmu.edu
+server vice3.fs.andrew.cmu.edu
+server vice4.fs.andrew.cmu.edu
+server vice5.fs.andrew.cmu.edu
+server vice6.fs.andrew.cmu.edu
+server vice8.fs.andrew.cmu.edu
+server vice9.fs.andrew.cmu.edu
+server vice10.fs.andrew.cmu.edu
+percent-full 103
+blocks-avail 0
+server vice13.fs.andrew.cmu.edu
+server vice14.fs.andrew.cmu.edu
+server vice15.fs.andrew.cmu.edu
+server vice16.fs.andrew.cmu.edu
+server vice17.fs.andrew.cmu.edu
+server vice18.fs.andrew.cmu.edu
+server vice19.fs.andrew.cmu.edu
+server vice20.fs.andrew.cmu.edu
+server vice21.fs.andrew.cmu.edu
+server vice2.fs.andrew.cmu.edu
+server vice7.fs.andrew.cmu.edu
+server vice11.fs.andrew.cmu.edu

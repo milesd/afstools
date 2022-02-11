@@ -1,0 +1,367 @@
+--- ../orig/Imakefile -------------------------------------------------
+5c5
+< #define BuildChooser !SystemV
+---
+> #define HasAFS
+6a7,8
+> #define BuildChooser YES
+> 
+26a29,45
+> #ifdef HasAFS
+> AFSLIBDIR  = /usr/afsws/lib/
+> AFSLIBS = ${AFSLIBDIR}afs/libkauth.a ${AFSLIBDIR}libubik.a \
+>         ${AFSLIBDIR}afs/libprot.a \
+>         ${AFSLIBDIR}librxkad.a ${AFSLIBDIR}librx.a ${AFSLIBDIR}liblwp.a \
+>         ${AFSLIBDIR}afs/libauth.a   ${AFSLIBDIR}afs/libsys.a  \
+>         ${AFSLIBDIR}librxkad.a ${AFSLIBDIR}libdes.a \
+>         ${AFSLIBDIR}afs/libcmd.a ${AFSLIBDIR}afs/libcom_err.a \
+>         ${AFSLIBDIR}afs/util.a
+> INCLUDES = -I/usr/afsws/include
+> EXTRA_DEFINES = -DAFS
+> #else
+> AFSLIBS=
+> #endif
+> 
+> CDEBUGFLAGS = -g
+> 
+31c50
+< LOCAL_LIBRARIES = XawClientLibs $(XAUTHLIB) $(XDMCPLIB) $(RPCLIB)
+---
+> LOCAL_LIBRARIES = XawClientLibs $(XAUTHLIB) $(XDMCPLIB) $(RPCLIB) $(AFSLIBS)
+48,49c67,68
+<        DEPLIBS3 = XawClientDepLibs $(TOP)/lib/Xdmcp/libXdmcp.a
+<           LIBS3 = XawClientLibs $(TOP)/lib/Xdmcp/libXdmcp.a
+---
+>        DEPLIBS3 = XawClientDepLibs 
+>           LIBS3 = XawClientLibs -lXdmcp
+
+--- ../orig/Login.c -------------------------------------------------
+81c81,87
+< 	offset(allow_access), XtRImmediate, False }
+---
+> 	offset(allow_access), XtRImmediate, False },
+>     {XtNadditionalMessage, XtCAdditionalMessage, XtRString, sizeof (char *),
+>         offset(message), XtRString, ""},
+>     {XtNmessageFont, XtCFont, XtRFontStruct, sizeof (XFontStruct *),
+>         offset(messageFont), XtRString, "*-new century schoolbook-bold-r-normal-*-180-*"},
+>     {XtNmessageColor, XtCForeground, XtRPixel, sizeof (Pixel),
+> 	offset(messagepixel), XtRString,	"Black"}
+99a106,109
+> # define MESSAGE_X_INC(w) ((w)->login.messageFont->max_bounds.width)
+> # define MESSAGE_Y_INC(w) ((w)->login.messageFont->max_bounds.ascent +\
+> 			   (w)->login.messageFont->max_bounds.descent)
+> 
+135a146,152
+> # define MESSAGE_X(w)   ((w->core.width - XTextWidth (w->login.messageFont,\
+> 			     w->login.message, strlen(w->login.message)))/2)
+> # define MESSAGE_Y(w)	(GREET_Y(w) + 2 + MESSAGE_Y_INC(w) +\
+> 			 w->login.messageFont->max_bounds.ascent)
+> # define MESSAGE_W(w)	(XTextWidth (w->login.greetFont,\
+> 			 w->login.message,strlen(w->login.message)))
+> 
+296a314,316
+>     XDrawString (XtDisplay (w), XtWindow (w), w->login.messageGC,
+>     		 MESSAGE_X(w),MESSAGE_Y(w),
+> 		 w->login.message, strlen(w->login.message));
+754a775,784
+>     xvaluemask = valuemask;
+>     if (w->login.messageFont == NULL )
+>         w->login.messageFont = w->login.font;
+>     else
+> 	xvaluemask |= GCFont;
+> 
+>     myXGCV.foreground = w->login.messagepixel;
+>     myXGCV.font = w->login.messageFont->fid;
+>     w->login.messageGC = XtGetGC (gnew, xvaluemask, &myXGCV);
+> 
+798a829
+>     XtReleaseGC(gw, w->login.messageGC);
+
+--- ../orig/Login.h -------------------------------------------------
+65a66,68
+> # define XtNadditionalMessage	"additionalMessage"
+> # define XtNmessageFont		"messageFont"
+> # define XtNmessageColor	"messageColor"
+74a78
+> # define XtCAdditionalMessage	"AdditionalMessage"
+
+--- ../orig/LoginP.h -------------------------------------------------
+40a41
+> 	Pixel		messagepixel;   /* message pixel */
+46a48
+> 	GC		messageGC;
+51a54
+> 	char		*message;	/* The additional message text */
+55a59
+> 	XFontStruct	*messageFont;	/* font for the additional message */
+
+--- ../orig/dm.c -------------------------------------------------
+87a88,96
+> 
+>     /* change dir to / so that core files get dumped there.. */
+>     /* Should be temp when debugging? */
+>     if( debugLevel == 0 ) {
+>        chdir("/");
+>     } else {
+>        chdir("/tmp");
+>     }
+> 
+405,406c414,415
+< 		Debug ("Display exited with unknown status %d\n", waitVal(status));
+< 		LogError ("Unknown session exit code %d from process %d\n",
+---
+> 		Debug ("dm.c: WaitForChild: Display exited with unknown status %d\n", waitVal(status));
+> 		LogError ("dm.c: WaitForChild: Unknown session exit code %d from process %d\n",
+
+--- ../orig/error.c -------------------------------------------------
+4c4
+<  * $XConsortium: error.c,v 1.12 91/04/02 11:56:56 rws Exp $
+---
+>  * $XConsortium: error.c,v 1.11 89/10/31 14:31:10 keith Exp $
+18a19,22
+>  *
+>  * Change history:
+>  * 910212   Scanner (scanner@rpi.edu) -- Change from logging to a file to
+>  *                                       logging via syslog as well.
+26a31,33
+> #ifndef USESYSLOG
+> #define USESYSLOG
+> #endif
+29a37,38
+> #ifdef USESYSLOG
+> # include <syslog.h>
+30a40,44
+> #ifndef SYSLOGIDENT
+> #define SYSLOGIDENT "xdm"
+> #endif
+> #endif /* USESYSLOG */
+> 
+33,43c47,63
+< 	int	i;
+< 	if (errorLogFile[0]) {
+< 		i = creat (errorLogFile, 0666);
+< 		if (i != -1) {
+< 			if (i != 2) {
+< 				dup2 (i, 2);
+< 				close (i);
+< 			}
+< 		} else
+< 			LogError ("Cannot open errorLogFile %s\n", errorLogFile);
+< 	}
+---
+>    int	i;
+> 
+> #ifdef USESYSLOG
+>    /* Make our connection to the syslogd */
+>    openlog( SYSLOGIDENT, LOG_PID, LOG_LOCAL2 );
+> #endif /* USESYSLOG */
+> 
+>    if (errorLogFile[0]) {
+>       i = creat (errorLogFile, 0666);
+>       if (i != -1) {
+> 	 if (i != 2) {
+> 	    dup2 (i, 2);
+> 	    close (i);
+> 	 }
+>       } else
+> 	 LogError ("Cannot open errorLogFile %s\n", errorLogFile);
+>    }
+53a74,77
+> 
+> #ifdef USESYSLOG
+>     syslog(LOG_INFO, fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+63a88,90
+> #ifdef USESYSLOG
+>     syslog(LOG_ERR, fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+72a100,102
+> #ifdef USESYSLOG
+>     syslog(LOG_CRIT,fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+82a113,115
+> #ifdef USESYSLOG
+>     syslog(LOG_ERR, fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+106a140,142
+> #ifdef USESYSLOG
+> 	syslog(LOG_DEBUG, fmt, arg1, arg2, arg3, arg4, arg5, arg6);
+> #endif /* USESYSLOG */
+
+--- ../orig/session.c -------------------------------------------------
+92c92,94
+<     LogError("fatal IO error %d (%s)\n", errno, s);
+---
+> /*    if( errno != EPIPE ) {  */
+>        LogError("fatal IO error %d (%s)\n", errno, s);
+> /*    } */
+
+--- ../orig/verify.c -------------------------------------------------
+38a39,44
+> #ifdef AFS
+> /* AFS Kerberos includes */
+> #include <afs/kautils.h>
+> #define NOPAG  0xffffffff
+> #endif
+> 
+77a84,86
+> #ifdef AFS
+> 	int reason;     /* AFS Authenticate return code */
+> #endif
+78a88,92
+> 	if(strlen(greet->password) == 0 ) {
+> 	   Debug("Verify %s.. zero length password. Rejecting\n",greet->name);
+> 	   return 0;
+> 	}
+> 
+92a107,115
+> #ifdef AFS
+> 	if( ka_UserAuthenticateGeneral(KA_USERAUTH_VERSION+
+> 				       KA_USERAUTH_DOSETPAG,
+> 				       greet->name, "", 0, greet->password,
+> 				       0, 0, 0, &reason )) {
+> 	   /* Failed.. fallback to the passwd file */
+> 	   Debug("Verifying to AFS failed. Falling back to /etc/passwd\n");
+> 	   if(strcmp (crypt (greet->password, p->pw_passwd), p->pw_passwd))
+> #else
+94a118
+> #endif
+99a124,126
+> #ifdef AFS
+> 	}
+> #endif
+103a131,139
+> #ifdef AFS
+> 	/*
+> 	 * Here is where we have to be careful for the groups structure should
+> 	 * contain the PAG entries.  We need to preserve the PAG, set the
+> 	 * groups, and then put the PAG back into the group list.
+> 	 */
+> 	
+> 	getGroupsRetainPags (greet->name, verify, p->pw_gid);
+> #else
+104a141
+> #endif
+235a273,394
+> 
+> #ifdef AFS
+> /*
+>  * The issue is that the user's groups should contain in the 1st 2 entries
+>  * the original pag obtained via the ka_UserAuthenticate call. Before
+>  * the ka_userAuthenticate call check the value of gr[0,1]; after the
+>  * call check it again and gr[0,1] should be different (because of the
+>  * setpag side effect). The danger is the pag maybe lost when the
+>  * login session initiates the groups which here happens originally in
+>  * the GetGroups func above (actually in the setgroups later on based
+>  * on the made up groups). After the program exits (you're in the
+>  * login shell) then make sure you still retain the groups (use the
+>  * 'groups' cmd to see if gr[0] & gr[1] are the same ones) See if
+>  * there is any difference in the groups between the 'good' logins and
+>  * the 'bad' ones later on. We use the code in RetainPags() below to
+>  * keep the pag in the 1st two entries 
+>  *
+>  */
+> 
+> static int
+>    get_pag_from_groups(g0, g1)
+> unsigned long g0, g1;
+> {
+>    unsigned long h, l, result;
+>    
+>    g0 -= 0x3f00;
+>    g1 -= 0x3f00;
+>    if (g0 < 0xc000 && g1 < 0xc000) {
+>       l = ((g0 & 0x3fff) << 14) | (g1 & 0x3fff);
+>       h = (g0 >> 14);
+>       h = (g1 >> 14) + h + h + h;
+>       result =  ((h << 28) | l);
+>       /* Additional testing */
+>       if (((result >> 24) & 0xff) == 'A')
+> 	 return result;
+>       else
+> 	 return NOPAG;
+>    }
+>    return NOPAG;
+> }
+> 
+> 
+> static void
+>    get_groups_from_pag(pag, g0p, g1p)
+> unsigned long pag;
+> unsigned long *g0p, *g1p;
+> {
+>    unsigned short g0, g1;
+>    
+>    pag &= 0x7fffffff;
+>    g0 = 0x3fff & (pag >> 14);
+>    g1 = 0x3fff & pag;
+>    g0 |= ((pag >> 28) / 3) << 14;
+>    g1 |= ((pag >> 28) % 3) << 14;
+>    *g0p = g0 + 0x3f00;
+>    *g1p = g1 + 0x3f00;
+> }
+> 
+> /**************************************************************************
+>  * getGroupsRetainPags()
+>  *
+>  * This routine saves the first two entries of this process's existing
+>  * group list in case they may identify a PAG that this process is in.
+>  *
+>  * It then sets the groups list in the verify structure to reflect what groups
+>  * the given user should be in when his session starts.
+>  *
+>  * Afterwards, if we actually pulled a PAG from the pre-existing groups list
+>  * add the PAG's group-representation to the list stored in the verify
+>  * structure for the user.
+>  */
+> 
+> static int
+>    getGroupsRetainPags(name, verify, gid)
+> char                  *name;
+> struct verify_info    *verify;
+> int                   gid;
+> {
+>    int         ngroups;
+>    int         pagval;
+>    int         j;
+> 
+>    verify->groups[0] = verify->groups[1] = 0;
+>    
+>    ngroups = getgroups(NGROUPS_MAX, verify->groups);
+>    Debug("RetainPags: Pre-existing first two groups: %d, %d\n",
+> 	 verify->groups[0], verify->groups[1]);
+>    
+>    pagval = get_pag_from_groups(verify->groups[0], verify->groups[1]);
+> 
+>    if( pagval == NOPAG ) {
+>       Debug("RetainPags: a PAG was not found in this processes groups\n");
+>    } else {
+>       Debug("RetainPags: The PAG %d was found in this process groups\n",
+> 	    pagval );
+>    }
+> 
+>    /*
+>     * Now we do the XDM call to fill the verify->groups structure with the
+>     * groups we want this user to have when his session starts
+>     */
+>    getGroups (name, verify, gid);
+> 
+>    /* Now, check to see if we saved an actual PAG value from the processes
+>     * group list.. if we did then we shift over verify->groups by two and
+>     * put the two group entries that correspond to the PAG back in.
+>     */
+>    if ( pagval != NOPAG ) {
+>       /* we will have to shift grouplist to make room for pag */
+>       if (verify->ngroups + 2 > NGROUPS_MAX) {
+> 	 LogError("RetainPags: Not enough room to re-insert the PAG into the group-list\n");
+> 	 return;
+>       }
+> 
+>       for (j = verify->ngroups - 1; j >= 0; j--) {
+> 	 verify->groups[j + 2] = verify->groups[j];
+>       }
+>       verify->ngroups += 2;
+>       get_groups_from_pag(pagval, &(verify->groups[0]), &(verify->groups[1]));
+>    }
+> }
+> #endif

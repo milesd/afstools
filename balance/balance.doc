@@ -1,0 +1,583 @@
+	     Balance - A Generalized AFS Volume Balancer
+
+[Version 1.1a]
+
+Author: Dan Lovinger, del+@cmu.edu
+
+	NOTE: Dan is leaving CMU at the end of May. While he will still
+	be reachable at his old address for a good long time to come,
+	all general communication should be directed to:
+
+Contact: Derrick Brashear, shadow+@andrew.cmu.edu
+
+INDEX
+
+	*** History
+	*** Design
+	*** Agents
+	*** USAGE
+	*** Config File Format
+	*** Implicit Exclusions
+	*** Agent arguments
+	*** Running the Balancer
+	*** Caveats & Discussion
+	*** Installation
+	*** CHANGES
+
+**********************
+*** History
+
+One  of the  key  advantages of AFS  over more traditional distributed
+filesystems is  that  it breaks  the  global file system into volumes.
+These volumes, in addition to breaking down usage into (possibly) well
+defined chunks for administrative purposes can also be moved around to
+free up space on heavily utilized  partitions -  something  monolithic
+filesystems  cannot  do;  however,  there  has  never  been  a  really
+reasonable  way  to  do  this.  The key  problem is  that  volumes and
+servers tend to proliferate  and human-driven balancing quickly starts
+taking too much time  or does not address  all  of the problems - just
+the ones that will cause the admin to get beeped over night!
+
+So, volume balancing  should  clearly be done via some automatic tool.
+Here at  CMU/Andrew, we had a size balancer for several years, cobbled
+out of csh, awk, bc, and other  sundry tools.  This was unsatisfactory
+for  a  number of  reasons, not the least of which  we could  see very
+plainly  that  some of our user servers were being  under-utilized not
+only just in terms of raw disk used, but also in terms of fetch counts
+and the  fact that some servers were getting huge numbers of miniscule
+volumes loaded onto them, which led to widely divergent server restart
+times.  In fact, there are  potentially  a  spectrum of  variables and
+conditions  one would  want  to balance a set  of servers by. The  old
+balancer considered none of this, and was in no way extensible to meet
+the new requirements.
+
+
+**********************
+*** Design
+
+Balance  is designed around a simple OOP  framework.   The  model is a
+master  agent which is provided  a picture  of  the  world and in turn
+provides an elaborated  state of the cell to  a group of agents  which
+are  each  responsible  for  a  particular  facet  of   the  balancing
+algorithm.  This central agent  repeatedly calls for transactions from
+agents, passes them for review to other agents for possible vetos,  if
+none veto queue it  up for action, and  so on until  all of the agents
+declare that they give up or the master agent  decides that the run is
+complete. The actions these agents may take in proposing and rejecting
+transactions are completely arbitrary and  independent of  the central
+arbiter, within the general guideline that  they  better be reasonable
+or nothing gets done ...
+
+In particular,  an  agent  need not balance!  It  would  be  perfectly
+legitimate to write  an agent whose goal in life was to empty  servers
+of volumes. This would be useful if servers ever needed to be  brought
+down for  rebuilding, decommisioning, etc.  Just for a trivial example
+...
+
+It is assumed in this model that certain agents will always be run for
+safe  operation  -  in  particular,  an agent  which  is  balancing by
+partition  usage.  An agent which is  balancing by  number of  volumes
+starting  with  "foo"  in  their  names should  not try to balance  by
+*anything* else.  The  voting by  the other agents will  take care  of
+their turf. There is implicit negotiation always taking place.
+
+
+**********************
+*** Agents
+
+There are currently three agents written into the balancer:
+
+	Bysize: this is the "standard" agent. It attempts to balance
+	by partition the occupancy of partitions, defined to be
+	used/total. The rationale is that partitions will tend to
+	expand by percentage use, not raw usage (a 1Gig partition with
+	500 meg used will expand to 750 meg used as fast as a 400 meg
+	parition with 200 meg used will expand to 300 meg used).
+
+	Bynumber: this balances by number of volumes per unit
+	partition size (in K). The rationale is that number of volumes
+	is the controlling factor in several serial operations on the
+	server,	so attempt to even things out. Such as: restart times
+	(fileservers attach volumes one at a time), vos listvol, etc.
+	Implicit is the assumption that if you throw a gazillion disks
+	on a machine you expect it to have more volumes, so don't do
+	by server balancing also.
+
+	Byweekuse: this balances by the number of vnode accesses in
+	the last week on a volume, per partition proviso that the
+	server usage never be allowed to drive about the average
+	partition usage times the number of partitions plus slop. This
+	means that a server with two partitions, one with 1 million
+	weekuse on it and one with no weekuse will not ever accept
+	volumes if the partition average is low, until the 1 million
+	weekuse partition is dealt with. Another implication is that
+	this agent assumes that if you stick 12 disks on a server in a
+	cell (or set of machines) that normally has machines with 4, you
+	*want* it to get beat on. Open for debate.
+
+Caveat: byweekuse assumes a  patch to the  volserver  for AFS 3.3  and
+previous versions  to attach the weekuse  statistics to the volintInfo
+structure returned via the  listvol calls.  Currently, only the dayuse
+is  returned.  Dayuse is    an unstable quantity unsuitable  for  real
+balancing.    This patch  has    been  submitted  to  Transarc  and is
+integrated into  AFS 3.4.  DO NOT  TURN THE BYWEEKUSE AGENT  ON UNLESS
+YOU HAVE IT. If you have a source license and access to the AFS source
+contrib area, you may retrieve this patch from
+
+	/afs/transarc.com/public/afs-contrib/src/cmu-andr/weekuse
+
+Again, this patch is only neccesary for AFS 3.3 and below.
+
+This is  only  a first pass.  There are clearly other agents possible,
+such as
+
+	empty: as mentioned above, empty a server
+
+	byoverdraft: balance by used/quota, to balance the possible
+	expansion of space across partitions.
+
+The model  is such that it does not preclude  much of anything.  There
+isn't a hard  and fast  guideline  to  writing an agent,  but  see the
+general design of the current  ones, particularly bysize and byweekuse
+for the basics,  and the  balance()  loop in balance.c for the driver.
+They should be well-commented and make sense. One of the goals of this
+design was to make it conceptually a fairly trivial thing.
+
+**********************
+*** USAGE
+
+balance -f config [-e] [-r] [-l limit] [-v nvoltrans]
+	[-t ntrans] [-p nprocs] [-c command] [-s]
+
+	-f config: specify the server config file for this run
+
+	-e: activate echo mode, don't actually process transactions,
+		just report what would have been done
+
+	-r: ask each active agent (as specified by config, see below),
+		to print out its picture of the world before and after
+		the in-memory balance (see CAVEATS) - gives you fuzzies
+		as to how it did.
+
+	-l limit: specify how long the balancer should run before shutdown.
+		<limit> is specified in straight seconds (3600 for an hour,
+		etc.) or as specified in the config syntax for "runtime"
+		below. DEFAULT: 4 hours. A value of zero unlimits runtime.
+
+	-v nvoltrans: specify how many times a volume may move in a
+		balance run. DEFAULT: 1
+
+	-t ntrans: specify how many transactions should be generated.
+		DEFAULT: 300
+
+	-p nprocs: specify how many transactions may be carried out in
+		parallel. DEFAULT: 4 (no more than one transaction per
+		server will ever run at once)
+
+	-c command: command is the name of the command to use to move
+		volumes. this is really only useful to specify where
+		vos lives - like "-c /usr/afsws/etc/vos"
+		DEFAULT: value of the VOS define in balaance.h
+		(/usr/local/etc/vos as shipped)
+
+	-s: run per -localauth convention - use local server authentication
+		on the machine, presumeably an AFS server of some sort
+
+        -D dir: use files in dir for information on volume location, size, and
+                weekuse instead of fetching them from the volservers directly
+                which is a timeconsuming operation. These files are produced 
+                daily using a modified vos which produces output similar to 
+                the following:
+BEGIN_OF_ENTRY
+name            root.cell
+id              48720
+serv            128.2.10.22     VICE22.FS.ANDREW.CMU.EDU
+part            /vicepd
+status          OK
+backupID        33820989
+parentID        48720
+cloneID         33819821
+inUse           Y
+needsSalvaged   N
+destroyMe       N
+type            RW
+creationDate    571350089       Mon Feb  8 15:21:29 1988
+accessDate      0               Wed Dec 31 19:00:00 1969
+updateDate      844458496       Fri Oct  4 15:48:16 1996
+backupDate      618639037       Wed Aug  9 00:10:37 1989
+copyDate        618639037       Tue Dec  3 17:23:10 1996
+flags           0       (Optional)
+diskused        86
+maxquota        100
+minquota        0       (Optional)
+filecount       75
+dayUse          1437
+weekUse         9893    (Optional)
+spare2          0       (Optional)
+spare3          0       (Optional)
+END_OF_ENTRY
+... 
+**********************
+*** Config File Format
+
+The config file is a series of lines terminated with a semicolon.  The
+only  restriction is that the cell of the fileservers must be declared
+before any fileservers.
+
+cell <cellname>;
+
+	This declares which cell the to-be named fileservers live in.
+	It must be seen prior to all fileserver declarations.
+
+fs <fileserver name> <list of partitions> [in globs] [out globs];
+
+	This declares partitions residing on a particluar fileserver
+	to the master agent. By default, any volume may exit and any
+	volume may enter these partitions. This may be modified by
+	specifying lists of glob expressions to match volumes which
+	may or may not enter or exit the partitions. An undeclared
+	glob list is the same as a positive "*".
+
+< [+ glob1 glob2 ...] [- glob1 glob2 ...]
+
+	"in globs"
+
+	This declares a list of positive globs and negative globs
+	which are used to match volumes allowed to enter (think
+	directing a file to a process) the partition. An undeclared
+	positive list is the same as "*". An undeclared negative list
+	matches nothing. It is an error to specify no glob expressions
+	with the '<' operation.
+
+> [+ glob1 glob2 ...] [- glob1 glob2 ...]
+
+	"out globs"
+
+	The same as the in globs, but for outbound volumes (think
+	directing stdout from a process).
+	
+maxout glob1 [glob2 ...];
+        Volumes matching the glob are "maxed out"; that is their size is 
+        is considered to be the same as their maxquota (actually the maximum
+        of size and maxquota)
+
+agent <agentname> [arguments];
+
+	This declares an agent with arguments as specified as active
+	for this run of the balancer. Agents are not run unless turned
+	on explicitly in the config. See below for the arguments
+	agents take. It is not an error to specify no agents, but
+	nothing will happen. Arguments must all be on one line.
+
+runtime = <digits>d<digits>h<digits>m<digits>s;
+
+	This specifies the allowed runtime of the balancer. In any order,
+	the number of integer days, hours, minutes, seconds. Example:
+	1d2h45m30s specifies one day, two hours, forty-five minutes and
+	30 seconds of runtime. This is orderless, and capitalization does
+	not matter. If no time unit is specified, seconds are assumed for
+	compatibility. Overriden by command line option -l if specified.
+	DEFAULT: 4 hours. A value of zero unlimits runtime.
+
+procs = <digits>;
+
+	This specifies the number of simultaneous transactions that may be
+	carried out. Overriden by command line option -p if specified.
+	DEFAULT: 4.
+
+transactions = <digits>;
+
+	This specifies the number of total transactions to generate for
+	this run. Overriden by command line option -t if specified.
+	DEFAULT: 300.
+
+voltransactions = <digits>;
+
+	This specifies the number of allowed transactions per-volume
+	this run. Overriden by command line option -v if specified.
+	DEFAULT: 1.
+
+Comments may appear  at the end of  any line except agent declarations
+and begin with a '#'.
+
+For example:
+
+cell andrew.cmu.edu;
+
+# Some fileservers to balance
+fs vice19.fs    abe;
+fs vice19.fs    f 	< - sun4* rsaix*	 # don't want any
+						 # sun4* or rsaix*
+		
+			> + pmax* - pmax.local*; # only want pmax* to
+						 # exit, but want
+						 # pmax.local.* to stay
+fs vice20.fs    abef;
+fs vice21.fs    abef;
+fs vice25.fs    abef;
+fs vice26.fs    abef;
+
+# agent parameters
+agent bysize    -p 10;
+agent bynumber  -p 20;
+agent byweekuse -p 30;
+
+The interesting specification is  clearly for vice19 as it illustrates
+the  use of  glob expressions.  Note that only partition  f of  vice19
+will  be balanced under these rules  -  a,  b, and e aren't  affected.
+These expressions may be useful for partitioning the pool by use.
+
+
+**********************
+*** Implicit Exclusions
+
+A few kinds  of  volumes are implicitly excluded  from  consideration.
+These are:
+
+	* read/write volumes which have a readonly clone on the same
+	partition (to avoid splitting clones)
+
+	* volumes not online
+
+	* volumes being acted on by the volserver (BUSY)
+
+	* volumes locked in the VLDB
+
+There is no  way to override these at the current  time (not  that one
+would want to, anyway).
+
+Volumes with over MAXWEEKUSE  (in balance.h)  are considered to have 0
+weekuse for the purposes of the byweekuse agent.  By  default, this is
+100  million. Rare instances  of  bogus  volume data being passed back
+from the volserver have been observed with no particular pattern.
+
+
+**********************
+*** Agent arguments
+
+	Currently, all agents take only one argument.
+
+	-p <precision>: specify the precision to which the balance
+	will be done. I.e. "within 10%" if -p 10. The definition of
+	precision is altered slightly for bysize, which defines it as
+	how far up it may encroach on the free space.
+
+Precision is  also  a guarantee  that no entity will  ever  go farther
+above  the upper precision boundary  as the current agents are written
+(see the queryrequest and findest functions).
+
+	Default precisions: bysize = 20%, bynumber = 40%, byweekuse = 20%.
+
+
+**********************
+*** Running the Balancer
+
+	An example (and rather maximal) invocation:
+
+	balance -f test -v 2 -t 250 -l 3600 -p 10 -r
+
+This would  run  the  balancer on  the config  "test" in  the  current
+directory, allowing volumes to move twice, generating at most 250 move
+transactions, allowing moves to happen at most one hour from the start
+of execution, with up  to  10 move transactions going  on at once. And
+print out before and after reports.
+
+	If you just want to see what it might do
+
+	balance -e -f test -v 2 -t 250 -r
+
+since -e  implies no time restriction and -p clearly has no meaning. I
+recommend  playing with the  precisions on the  agents and seeing what
+they do a few times before turning the balancer on "live".
+
+	The default invocation
+
+	balance -f test
+
+is equivalent to the more elaborate
+
+	balance -f test -v 1 -t 300 -l 4h -p 4
+
+The  exit  status of  balance will indicate whether abnornal  shutdown
+occured.  In the  event of a vos failure, explicit error messages will
+be reported  and  shutdown  will commence, allowing  currently running
+transactions to complete.  A log  of unintiated  transactions  will be
+printed as well.
+
+Currently, the  runtime behaviour of the  balancer is to  exhaustively
+try to dispatch transactions  to  move volumes  until  it runs  out of
+allowed slots (the -p switch, procs in  config).  Only one transaction
+per  fileserver  will  ever be running  at  any given  time.  The move
+sequence for a volume will end  with a "vos backup" if a backup volume
+existed  at  the original site.  This  preserves the expected behavior
+for users  and allows  customary backup  volume usage, albeit now from
+the time of the move as opposed from the time of the last backup.
+
+
+**********************
+*** Caveats & Discussion
+
+In  no particular order, and with no guarantee as to completeness here
+are the current limitations and bogons as I see them:
+
+	* RO volumes are not balanced. While with AFS 3.3 it is probable
+	that one of the great hairy problems has gone away (with RO
+	callbacks), this would still be complicated.
+
+	* the after reports (generated with -r) can be wrong if the
+	run exceeds the time limit, a command fails, or in another
+	manner the transactions do not run to completion. This may be
+	an indication that transactions should be run as they are
+	generated, as opposed to generating the entire list and then
+	running the whole list in order as is currently done.
+
+	* it really should be possible to parallelize the retreival of
+	volume information from the fileservers. Currently it can take
+	several hours for the balancer to serially get this info at
+	startup.
+
+	* negotiation is a good first pass, but is not going to result
+	in chained transactions, such as exchanging volumes. It is
+	unclear whether in real life this is enough of a motivator to
+	greatly complicate things. I expect partitions to be in
+	sufficient number to allow "good enough" beahvior.
+
+	* it lies about precision. Current agents will actually try to
+	balance to 1/2 of the precision so as to avoid partitioning
+	the possible source and destination partitions and/or servers.
+	If you think about it, if agents rejected everything below the
+	upper slop and pulled volumes off of everything above the
+	upper slop the set of source and dest would be the
+	intersection of each agents source and dest (almost). This
+	could vanish, and provide instant deadlock. Doing things this
+	way guarantees some area to do implicit chain negotiation in as
+	long as precisions are not too low.
+
+	* this also means that volumes can chase around a lot. Hence
+	the restriction on number of volume moves. For a good time,
+	set nvoltrans to 10 or so and run it in echo mode.
+
+	* weekuse (and dayuse, if an agent were (foolishly) written to
+	balance by that) is reset on a move by the volserver. This would
+	logically restrict balances with the byweekuse agent to once a
+	week in order to get the data back in line.
+
+	* it doesn't try very hard to figure out why a transaction
+	failed and continue if possible.
+
+	* think about what might happen if the byweekuse agent didn't
+	know about all partitions on a server. Thus:
+
+		fs foo.cmu.edu	abe;
+		fs foo.cmu.edu	f	< - * > - *;
+
+	is neccesary to announce the f partition to the weekuse agent.
+	Gross, eh? It'd be nice if things automatically gathered stats
+	for unspecified partitions, but I can imagine there could be
+	situations where this would be considered too cute.
+
+However, all that aside, the  current form  is very  useful.   I would
+appreicate commentary, thoughts,  requests (or even better: code).  As
+you should note going through the code, it is somewhat over-engineered
+-  this is  intentional.  Most of  it is over-threading of structures,
+which  could allow for all sorts of interesting things.  I didn't want
+to make writing *that* code neccesary.
+
+
+**********************
+*** Installation
+
+The balancer  has been compiled  and  tested  here  on  the  following
+platforms and compilers:
+
+	pmax_ul4: DECstation running Ultrix 4.2. Compilers: gcc. c89
+		does *not* work	since it gets indigestion over Transarc
+		header files (lwp.h - lwp_nextindex)
+	sun4*_413: Sparcs running SunOS 4.1.3. Compilers: gcc, acc
+		(unbundled ANSI compiler in Sun C 1.1)
+	hp700_ux90: HP Snakes running 9.x. Compilers: gcc, cc -Aa, c89
+
+and is known to  work with AFS 3.3  and 3.2. AFS  3.4 should also work
+but final judgement will have to wait to Transarc's gamma release.
+
+I'd be interested in knowing if the Ultrix 4.3 cc works.
+
+The  code requires  an ANSI compiler,  ANSI  stdargs, and  fd_sets.  I
+expect gcc will  serve well whatever the platform. Give it a whirl and
+let me know.  I want  to make this code portable and useful across the
+spectrum of Transarc supported AFS machines.
+
+To compile, change the Makefile  as appropriate.  Find the section for
+your machine, modify.  Turn  on the  agents  you  want compiled in. In
+balance.h, you may  want  to  change  the VOS define, which  points to
+where you have vos installed on your system. Compile away ...
+
+I  *strongly* recommend running in echo and report  (-er) mode  a  few
+times before  you go "live" to develop a sense  of what it will do for
+you.
+
+
+**********************
+*** CHANGES
+
+From beta-release version to 1.0:
+	fix bug in double-chain insert to empty list if elt inserted has
+		dirty prev pointer
+	vos backup volumes once they have moved
+	test for locked volume, don't move if it is
+	allow the switch-setable params to be done in cf, override
+		on cmd line
+	runtime = 0 means unlimited
+	runtime can also be specified in XhXmXsXd format
+
+From 1.0 to 1.1
+	new -s flag to do the equivalent of -localauth for all operations
+	new -c flag to specify where vos comes from
+	bug in transaction handling code fixed whereby a pointer wasn't
+		being updated properly (cosmetic and core-generating error,
+		not "serious")
+	requires specification of cell FS are in - new "cell" keyword in
+		config - this allows us to balance cells other than the
+		cell of the machine running the balancer (assuming there
+		is proper authentication, of course).
+	properly discards locked volumes. previously, it could complain
+		many many times about a single locked volume because agents
+		weren't told to ignore it
+	bug in config parser - didn't do agents with no arguments correctly
+		(now properly requires the ";")
+	installed a sanity check on the weekuse agent to guard against
+		improperly initialized volume structures (MAXWEEKUSE)
+	fixed serious bug where partitions over 100% were being treated
+		as essentially infinite in size (signed/unsigned error)
+
+From 1.1 to 1.1a
+	fix a rather serious bug in the transaction parallelization code.
+		since transactions are generated in a serial order there
+		must be dependency checking. previously if a transaction
+		list like	a -> z
+				b -> z
+				c -> b
+		existed it would allow a -> z to go, see that z was locked,
+		disallowing b -> z, and then allow c -> b to go. this is a
+		problem since it means the "monotonically better" guarantee
+		is violated - important since the balancer could be shut down
+		at any time. in practice this was only a problem if you had
+		a very popular destination.
+	fix a dumb typo/portability problem in the agents - EOF is an int,
+		not a char (I knew that, really). This will make RS6Ks happy.
+
+From 1.1a to 1.1b
+        folded in changes from ted@mit.edu which modify the agents to use 
+                different, perhaps better, upper and lower bounds around the 
+                precision.
+        There is partial inclusion of a byoverdraft agent. I'm not sure if it
+                works correctly, and it may be removed in a later release.
+        As a possible alternative to a byoverdraft agent, some volumes can be 
+                treated as if they were using their entire quota for the
+                purposes of the bysize agent. The statistics this generates
+                should be similar in nature to those the byoverdraft agent 
+                produces, but at present, they are not.
+        Support for reading volume information from files instead of querying
+                the volservers directly was added. This reduces up startup time
+                considerably.
+

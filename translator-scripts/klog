@@ -1,0 +1,23 @@
+#!/bin/sh
+
+trap 'stty echo; /bin/rm -fr /tmp/klog.$$' 0 1 2 3 4 5 6 7 8 10 12 13 14 15
+MACHINE=nhmxw0
+
+echo "Password: \c"
+stty -echo
+read password
+stty echo
+
+echo
+
+
+echo "#!/bin/sh" > /tmp/klog.$$
+chmod 700 /tmp/klog.$$
+echo "/usr/afsws/bin/klog $LOGNAME -password $password" >> /tmp/klog.$$
+echo "/usr/afsws/bin/knfs `/usr/local/bin/funame -n` `/usr/local/bin/loguid`" >> /tmp/klog.$$
+
+
+rcp /tmp/klog.$$ $MACHINE:/tmp/klog.$$
+rsh $MACHINE /tmp/klog.$$
+rm /tmp/klog.$$
+rsh $MACHINE /bin/rm /tmp/klog.$$

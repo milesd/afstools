@@ -1,0 +1,230 @@
+#!/usr/bin/wish -f
+# display AFS partition usage graphically
+# partition turns red when less than 100MB left
+
+# For the moment, you must hard-code the server names and watermark levels.
+
+# To do:
+# command line arguments (e.g. -cell, -partition)
+# determine servers and watermarks automagically
+# improve response to error conditions (e.g. server down)
+
+# sdata structure:
+# {server watermark {partition total free}}
+
+proc server_stats {s} {
+  global sdata font
+  set sd [lindex $sdata [lsearch -regexp $sdata "^$s "]]
+  set wm [lindex $sd 1]
+  set pd [lindex $sd 2]
+  set txt "Watermark: $wm\nPart  Total    Free"
+  set ttot 0
+  set tfree 0
+  foreach p $pd {
+    set part [lindex $p 0]
+    set tot [expr [lindex $p 1] / 1000.]
+    set marked [expr ($tot * $wm) / 100]
+    set tot [expr $tot - $marked]
+    set free [expr [lindex $p 2] / 1000. - $marked]
+    set ttot [expr $ttot + $tot]
+    set tfree [expr $tfree + $free]
+    set txt "$txt\n[format "  %s %7.1f %7.1f" $part $tot $free]"
+  }
+  set txt "$txt\n[format "Tot %7.1f %7.1f" $ttot $tfree]"
+  set w ".stat$s"
+  toplevel $w
+  wm title $w "Server: $s"
+  message $w.msg -width 250 -font $font -text $txt
+  button $w.dis -text "Dismiss" -command "destroy $w"
+  pack $w.msg $w.dis -fill x
+}
+
+proc partition {w pos part total free wm} {
+  global height barwidth barspace barbottom barscale alarm
+  set used [expr $total - $free]
+  set marked [expr ($total * $wm) / 100]
+  set x0 [expr $pos * ($barwidth + $barspace) +$barspace]
+  set x1 [expr $x0 + $barwidth]
+  set y0 [expr $height - $barbottom]
+  set y1 [expr $y0 - ($total * $barscale)]
+  $w create rectangle $x0 $y0 $x1 $y1 -fill green -outline ""
+  set y0 [expr $y1 + ($marked * $barscale)]
+  $w create rectangle $x0 $y0 $x1 $y1 -fill red -outline ""
+  set y0 [expr $height - $barbottom]
+  set y1 [expr $y0 - ($used * $barscale)]
+
+  # make it maroon1 if there is less than "alarm" Kb left
+  set col "blue"
+  if { $total - $used < $alarm } {
+    set col "maroon1"
+  }
+
+  # tag this rectangle with the partition letter
+  set id [$w create rectangle $x0 $y0 $x1 $y1 -fill $col -outline ""]
+  $w addtag $part withtag $id
+
+  set partx [expr $x0 + ($barwidth / 2.)]
+  set party $height
+  $w create text $partx $party -anchor s -fill blue -justify center -text $part
+}
+
+proc changebar {s part total used} {
+  global barscale alarm
+  set old [.x.$s.c coords $part]
+
+  # make it maroon1 if there is less than "alarm" Kb left
+  set col "blue"
+  if { $total - $used < $alarm } {
+    set col "maroon1"
+  }
+
+  # apparently, tk sorts the coordinates of the rectangle so that the first
+  # coordinate pair represents the upper left corner.
+  set y1 [expr [lindex $old 3] - ($used * $barscale)]
+  set new [lreplace $old 1 1 $y1]
+  eval .x.$s.c coords $part $new
+  eval .x.$s.c itemconfigure $part -fill $col
+}  
+
+proc srvr {s wm pdata} {
+  global height barwidth barspace
+  frame .x.$s
+  set npart [llength $pdata]
+#  puts stdout "$npart"
+  button .x.$s.l -relief raised -text $s -command "server_stats $s"
+  canvas .x.$s.c -height $height -width [expr $barspace + $npart * ($barwidth + $barspace)]
+  set pos 0
+  foreach pd $pdata {
+    set part [lindex $pd 0]
+    set tot [lindex $pd 1]
+    set free [lindex $pd 2]
+    partition .x.$s.c $pos $part $tot $free $wm
+    incr pos
+  }
+  pack .x.$s -side left
+  pack .x.$s.l -fill x
+  pack .x.$s.c
+}
+
+proc getsrvrdata servers {
+  set sdata {}
+  foreach server $servers {
+    set s [lindex $server 0]
+    set wm [lindex $server 1]
+
+    # this next line doesn't really handle errors well.  see error_output
+    catch {set usage [exec vos partinfo $s 2>/dev/null]}
+#   catch {set usage [exec cat data/$s 2>/dev/null]}
+
+    set ulist [split $usage \n]
+    set sd {}
+    foreach u $ulist {
+      set part [string index [lindex $u 4] 6]
+      set free [lindex $u 5]
+      set tot [lindex $u 11]
+      lappend sd [list $part $tot $free]
+    }
+    lappend sdata [list $s $wm $sd]
+  }
+  return $sdata
+}
+
+proc initialize servers {
+  global sdata
+#  button .x.exit -text "Exit" -command exit
+#  pack .x.exit -side bottom -fill x
+  set sdata [getsrvrdata $servers]
+
+  foreach svrd $sdata {
+    set s [lindex $svrd 0]
+    set wm [lindex $svrd 1]
+    set pdata [lindex $svrd 2]
+    srvr $s $wm $pdata
+  }
+}
+
+proc redraw servers {
+  destroy .x
+  frame .x
+  pack .x
+  initialize $servers
+}
+
+proc queue {} {
+  global interval servers
+  after $interval {
+    do_update $servers
+  }
+}
+
+proc do_update servers {
+  global sdata
+  set udata [getsrvrdata $servers]
+  if { $udata == $sdata } {
+    queue
+    return
+  }
+  set i 0
+  foreach svrd $sdata {
+    set ss [lindex $svrd 0]
+    set spdata [lindex $svrd 2]
+    set usvrd [lindex $udata $i]
+    set us [lindex $usvrd 0]
+    set updata [lindex $usvrd 2]
+    if { $us != $ss } {
+      redraw $servers
+      queue
+      return
+    }
+    set j 0
+    foreach spd $spdata {
+      set upd [lindex $updata $j]
+      incr j
+      if { $upd == $spd } {
+        continue
+      }
+      set spart [lindex $spd 0]
+      set stot [lindex $spd 1]
+      set sfree [lindex $spd 2]
+      set upart [lindex $upd 0]
+      set utot [lindex $upd 1]
+      set ufree [lindex $upd 2]
+      if { ($upart != $spart) || ($utot != $stot) } {
+        redraw $servers
+        queue
+        return
+      }
+      if { $ufree != $sfree } {
+        # It looks as though the usage has changed.  Change only the usage bar.
+        set used [expr $utot - $ufree]
+        changebar $us $upart $utot $used
+      }
+    }
+    incr i
+  }
+  set sdata $udata
+  queue
+}
+
+set alarm 100000
+set interval 60000
+#set interval 5000
+set height 100
+set barwidth 10
+set barspace 5
+set barbottom 15
+set font "*-courier-medium-r-normal--*-140-*-*-*-*-*-*"
+set bartop [expr $height - 5]
+set barscale [expr ($bartop - $barbottom) / 2048000.]
+
+# list of servers and their watermarks (in percent)
+set servers {{fireball 2} {cf1 2} {ca1 10}}
+
+# enable window manager functions
+wm minsize . 50 50
+
+frame .x
+pack .x
+initialize $servers
+
+queue

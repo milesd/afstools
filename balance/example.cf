@@ -1,0 +1,28 @@
+cell andrew.cmu.edu;
+
+# User Servers
+fs vice1.fs	abef	> - *.restored;
+fs vice3.fs	abf	> - *.restored;
+fs vice3.fs	e	< + ins.ini.*;	# INI disk
+fs vice4.fs	abef	> - *.restored;
+fs vice5.fs	abef	> - *.restored;
+fs vice6.fs	abef	> - *.restored;
+fs vice8.fs	abef	> - *.restored;
+fs vice9.fs	abef	> - *.restored;
+fs vice10.fs	abef	> - *.restored;
+fs vice13.fs	abef	> - *.restored;
+fs vice14.fs	abef	> - *.restored;
+fs vice21.fs	abef	> - *.restored;
+fs vice22.fs	abef	> - *.restored;
+fs vice23.fs	abef	> - *.restored;
+fs vice24.fs	abef	> - *.restored;
+fs vice29.fs	abef	> - *.restored;
+fs vice30.fs	abef	> - *.restored;
+
+# agent parameters
+agent bysize	-p 10;
+agent byweekuse -p 20;
+agent bynumber	-p 30;
+
+# give us a bunch of extra time
+runtime = 14h;

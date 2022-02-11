@@ -1,0 +1,868 @@
+#!/usr/local/bin/expect -f
+
+#
+# Copyright (c) 1994 University of Michigan.  All rights reserved.  Profit
+# reproduction prohibited.  Non-profit reproduction and distribution allowed
+# and encouraged.  Although this program has been tested, no warranty, express
+# or implied, is made by the University of Michigan, as to the accuracy and
+# functioning of the program and related progam material, nor shall the fact
+# of distribution constitute any such warranty, and no responsibility is
+# assumed by the University of Michigan in connection herewith.
+# Original coding by Mark Giuffrida (markg@umich.edu) Jan 1994 on an rs6000
+# running aix 3.2.4.
+#
+# Note:
+# This software was originally intended to be run from a shell script
+# started via cron or bos.  The wrapper shell script should obtain the
+# tokens necessary to run this expect script.
+#
+# Syntax: dobackup  <volumeset>  <schedule>  portA  portB|"none"
+#            "noappend"|"append" "eject"|"noeject"
+#
+#   e.g.: dobackup afs1 /weekly 0 7 noappend eject
+#   e.g.: dobackup afs1 /weekly 0 7 append noeject
+#   e.g.: dobackup afs1 /weekly 0 7 noappend eject
+#
+# Use "noeject" to keep the last tape of the dump in the tape drive.
+# This is useful when the next dump is "appended".
+#
+# Use "append" to append it to the current tape.  This implies that the first
+# tape in the stacker will not be initialized.
+#
+# Its assumed that a tape stacker is being used and that a "mt rewoffl" will
+# eject the tape and the tape stacker arm will load a new tape within 90 sec.
+# The 2 ports point to the same tape device.  PortB is used to read the existing
+# label and remember the dumpid (if there is one) for deletion from the backup
+# database after the backup is taken.  After the dumpid is read, the tape is
+# initialized with 2 consecutive tape marks.  Thus, expiration date checking
+# from butc will be defeated.  This will allow any tape to be recycled.
+# This script also writes a log file out to a directory.
+#
+# This script can run with both afs3.2b and afs3.3 releases.  Please set the
+# global variable "Version" below appropriately.
+#
+
+
+
+#
+# Global variables
+#
+
+#set Version    "afs3.2b"
+set Version    "afs3.3"
+
+set Configpath "/usr/afs/backup/tapeconfig"
+set Backuppath "/usr/afs/bin/backup"
+set Butcpath   "/usr/afs/bin/butc"
+set Logdir     "/usr/afs/logs/backuplabels"
+set Timepath   "/bin/date"
+set TimepathOp "+%H:%M:%S"
+set TimeFname  "+%y%m%d_%H:%M"
+set ThisDumpID  0
+set Ejectlast   1
+set Append	0
+
+# Initial timeout is 23 hours (this changes throughout script)
+set timeout 82800
+
+# Initialize dumpid array
+set Dumpid(0) "0"
+set DumpidN 0
+
+# Initialize tape stacker array and associated vars
+set Stacker(0) "<nothing>"
+set StackerN 0
+set Tapeno 1
+set Volsetprefix "<nothing>"
+
+
+#
+# TIMESTAMP procedure
+# This procedure will print the current time stamp.
+#
+proc time { arg } {
+	global Timepath TimepathOp
+
+	# Check for short form
+	if {$arg == "s"} {
+		send_user "+++++ [exec $Timepath $TimepathOp]"
+	} else {
+		send_user "+++++ [exec $Timepath]"
+	}
+	return
+}
+
+
+#
+# RECDUMPID procedure
+# This procedure will save the dumpid in a global array.  If
+# the dumpid is the same as an earlier one, it is not saved.
+proc recdumpid { id } {
+	global Dumpid DumpidN
+
+	# If dumpid is zero, then return
+	if { $id == 0 } {
+		return 0
+	}
+
+	# Set first element if first time through
+	if { $DumpidN == 0 } {
+		set Dumpid(0) $id
+		incr DumpidN
+		return 0
+	}
+
+	# Search the array for the number.
+	for {set n 0} {$n < $DumpidN} {incr n} {
+		if {$id == $Dumpid($n)} break;
+	}
+	# If not found, then add it
+	if {$n == $DumpidN} {
+		set Dumpid($n) $id
+		incr DumpidN
+	}
+	return 0
+}
+
+
+#
+# RECLABEL procedure
+# This procedure will record a label onto the current
+# global tape label array.
+proc reclabel { msg } {
+	global Stacker StackerN
+
+	set Stacker($StackerN) "$msg"
+	incr StackerN
+}
+
+
+#
+# GETTAPEINFO procedure
+# This procedure will read the current label on the tape and
+# set the volume prefix.  This is used for appended dumps since
+# if they span subsequent tapes, they take on the dump set name
+# of the first one on the tape.
+proc gettapeinfo {port backupid butcid} {
+	global timeout Volsetprefix Tapeno ThisDumpID
+
+	set savtimeout $timeout
+	set timeout 1200
+
+	send_user "[time s] Saving tape label info in case dump spans multiple tapes\n"
+	# Issue readlabel command in order to get dumpid
+	send_user "[time s] Sending readlabel command to backup process\n"
+	send -i $backupid "readlabel -port $port\n"
+	expect  -i $backupid "\r\n"
+	# Wait for BUTC to ask to hit enter when tape is loaded
+	send_user "[time s] Waiting for OPERATOR ATTENTION msg from butc process (timeout=$timeout) ...\n"
+	expect {
+		-i $butcid -re ".*OPERATOR ATTENTION.*Please put in tape\[^\r\n]*\r\n" { }
+	
+		-i $butcid timeout {
+			send_user "[time s] Timeout occured, dumpid could not be extracted\n"
+			set timeout $savtimeout
+			return 1
+		}
+	}
+	# Send an enter
+	send_user "[time s] Sending enter to butc process\n"
+	send -i $butcid "\n"
+	# Wait for ack
+	send_user "[time s] Waiting for Thanks message (timeout=$timeout)...\n"
+	expect {
+		-i $butcid -re ".*Thanks\[^\r\n]*\r\n\[\*]*\r\n" { }
+		-i $butcid timeout {
+			send_user "[time s] Timeout occured, dumpid could not be extracted\n"
+			set timeout $savtimeout
+			return 1
+		}
+	}
+	# Wait until backup process returns with success or failure
+	send_user "[time s] Waiting for backup process to return (timeout=$timeout) ...\n"
+	expect {
+		-i $backupid -re ".*Tape read was labelled : (\[^\ ]*)\[^\r\n]*\r\n" {
+			set tapelabel $expect_out(1,string)
+			set Volsetprefix "[file rootname $tapelabel]"
+			set n "[file extension $tapelabel]"
+			set Tapeno "[string range $n 1 end]"
+			incr Tapeno
+			expect -i $butcid -re ".*dump id = (\[0-9]*)\[^\r\n]*\r\n" { }
+			set ThisDumpID $expect_out(1,string)
+			send_user "[time s] Tape label of next tape will be '$Volsetprefix.$Tapeno'\n"
+			send_user "[time s] Dump ID of next tape will be '$ThisDumpID'\n"
+			expect -i $butcid -re ".*ReadLabel: Finished\[^\r\n]*\r\n" { }
+
+		} -i $backupid -re ".*Failed to read tape label\[^\r\n]*\r\n" {
+			# Tape has no label
+			send_user "[time s] Tape is not afs labelled and append requires it\n"
+			set timeout $savtimeout
+			return 1
+
+		} -i $backupid -re ".*tape I/O error\[^\r\n]*\r\n" {
+			# Tape has no label
+			send_user "[time s] Tape is not afs labelled and append requires it\n"
+			set timeout $savtimeout
+			return 1
+
+		} -i $backupid -re ".*end of tape\[^\r\n]*\r\n" {
+			# Tape has no label
+			send_user "[time s] Tape is not afs labelled and append requires it\n"
+			set timeout $savtimeout
+			return 1
+
+		} -i $backupid -re ".*server or network not responding\[^\r\n]*\r\n" {
+			# Tape has probably never been initialized or network has occured
+			send_user "[time s] Tape is not afs labelled and append requires it\n"
+			set timeout $savtimeout
+			return 1
+
+		} -i $backupid timeout {
+			send_user "[time s] Timeout occured, dumpid could not be extracted\n"
+			set timeout $savtimeout
+			return 1
+		}
+	}
+
+	# Collect prompt back from backup process
+	send_user "[time s] Waiting for backup process prompt (timeout=$timeout) ...\n"
+	expect -i $backupid -re ".*backup> "
+	send_user "\n"
+	set timeout $savtimeout
+	return 0
+}
+
+
+#
+# INITTAPE procedure
+# This procedure will read the current label on the tape and
+# purge its dumpid from the backup database.  It will then
+# initialize the tape by writing 2 tapemarks on it.
+# Note: AFS Tape expirations and tape label checking are defeated.
+proc inittape {tapedev port backupid butcid} {
+	global Dumpid DumpidN timeout
+
+	set savtimeout $timeout
+	set timeout 1200
+
+	if { $port != "none" } {
+
+		send_user "[time s] Saving dumpid so it can be deleted later from backup db\n"
+		# Issue readlabel command in order to get dumpid
+		send_user "[time s] Sending readlabel command to backup process\n"
+		send -i $backupid "readlabel -port $port\n"
+		expect  -i $backupid "\r\n"
+		# Wait for BUTC to ask to hit enter when tape is loaded
+		send_user "[time s] Waiting for OPERATOR ATTENTION msg from butc process (timeout=$timeout) ...\n"
+		expect {
+			-i $butcid -re ".*OPERATOR ATTENTION.*Please put in tape\[^\r\n]*\r\n" { }
+		
+			-i $butcid timeout {
+				send_user "[time s] Timeout occured, dumpid could not be extracted\n"
+				set timeout $savtimeout
+				return 1
+			}
+		}
+		# Send an enter
+		send_user "[time s] Sending enter to butc process\n"
+		send -i $butcid "\n"
+		# Wait for ack
+		send_user "[time s] Waiting for Thanks message (timeout=$timeout)...\n"
+		expect {
+			-i $butcid -re ".*Thanks\[^\r\n]*\r\n\[\*]*\r\n" { }
+			-i $butcid timeout {
+				send_user "[time s] Timeout occured, dumpid could not be extracted\n"
+				set timeout $savtimeout
+				return 1
+			}
+		}
+		# Wait until backup process returns with success or failure
+		send_user "[time s] Waiting for backup process to return (timeout=$timeout) ...\n"
+		expect {
+			-i $backupid -re ".*Tape read was labelled\[^\r\n]*\r\n" {
+				# Extract either dumpid or end of tape label msg.  The
+				# latter would mean its an old tape without a dumpid.
+				send_user "[time s] Waiting for butc process to return result (timeout=$timeout) ...\n"
+				expect {
+					-i $butcid -re ".*dump id = (\[0-9]*)\[^\r\n]*\r\n" {
+						set dumpid $expect_out(1,string)
+						send_user "[time s] Found dumpid $dumpid on tape\n"
+						recdumpid $dumpid
+					} -i $butcid -re ".*End of tape label\[^\r\n]*\r\n" {
+						send_user "[time s] Tape label found, but no dump id\n"
+					} -i $butcid timeout {
+						send_user "[time s] Timeout occured, dumpid could not be extracted\n"
+						set timeout $savtimeout
+						return 1
+					}
+				}
+
+			} -i $backupid -re ".*Failed to read tape label\[^\r\n]*\r\n" {
+				# Do nothing.  Tape has no dump id to remove from backup db
+				send_user "[time s] Tape is not afs labelled\n"
+
+			} -i $backupid -re ".*tape I/O error\[^\r\n]*\r\n" {
+				# Do nothing.  Tape has no dump id to remove from backup db
+				send_user "[time s] Tape is not afs labelled\n"
+
+			} -i $backupid -re ".*end of tape\[^\r\n]*\r\n" {
+				# Do nothing.  Tape has no dump id to remove from backup db
+				send_user "[time s] Tape is not afs labelled\n"
+
+			} -i $backupid -re ".*server or network not responding\[^\r\n]*\r\n" {
+				# Tape has probably never been initialized
+				# Wait 5 minutes, then proceed as though tape had no label
+				send_user "[time s] Assuming tape is completely uninitialized\n"
+				send_user "[time s] Waiting 5 minutes so butc can silently time out ...\n"
+				exec sleep 300
+
+			} -i $backupid timeout {
+				send_user "[time s] Timeout occured, dumpid could not be extracted\n"
+				set timeout $savtimeout
+				return 1
+			}
+		}
+
+		# Collect prompt back from backup process
+		send_user "[time s] Waiting for backup process prompt (timeout=$timeout) ...\n"
+		expect -i $backupid -re ".*backup> "
+		send_user "\n"
+
+	}
+
+	# Initialize tape by writing 2 tape marks at beginning
+	send_user "[time s] Initializing tape ...\n"
+	set rc [catch {exec mt -f $tapedev rewind}]
+	if {$rc != 0} {
+		send_user "[time s] **ERROR** Tape could not be initialized (rewind 1)\n"
+		set timeout $savtimeout
+		return 1
+	}
+	set rc [catch {exec mt -f $tapedev weof 2}]
+	if {$rc != 0} {
+		send_user "[time s] **ERROR** Tape could not be initialized (weof)\n"
+		set timeout $savtimeout
+		return 1
+	}
+	set rc [catch {exec mt -f $tapedev rewind}]
+	if {$rc != 0} {
+		send_user "[time s] **ERROR** Tape could not be initialized (rewind 2)\n"
+		set timeout $savtimeout
+		return 1
+	}
+
+	set timeout $savtimeout
+	return 0
+}
+
+
+#
+# NEXTTAPE procedure
+#
+# If eject="eject", then this procedure will eject the current tape
+# and wait for the tape stacker to load in the next tape.  The next
+# tape will be checked to make sure it got loaded.  After that, it
+# will call another procedure to initialize the tape.
+#
+# If eject="ejectlast", then it simply ejects the tape and returns.
+#
+# If eject="noeject", then it skips ejecting the tape and proceeds
+# to call another procedure to initialize the tape.
+#
+proc nexttape {tapedev port backupid butcid eject} {
+
+	if {$eject == "ejectlast"} {
+		set rc [catch {exec mt -f $tapedev rewoffl}]
+		if {$rc != 0} {
+			send_user "[time s] **ERROR** Could not unload last tape\n"
+			return 1
+		}
+		return 0
+	}
+
+	if {$eject == "eject"} {
+		set rc [catch {exec mt -f $tapedev rewoffl}]
+		exec sleep 90
+	}
+
+	# Make sure tape is there by rewinding it
+	set rc [catch {exec mt -f $tapedev rewind}]
+	if {$rc != 0} {
+		send_user "[time s] **ERROR** Could not find a correctly loaded tape\n"
+		return 1
+	}
+
+	# Make sure tape is not write protected
+	set rc [catch {set fd [open $tapedev w]}]
+	if {$rc != 0} then {
+		send_user "[time s] Tape is write-protected, trying next tape\n"
+		reclabel "<write-protected>"
+		catch {nexttape $tapedev $port $backupid $butcid eject} rc
+		return $rc
+	}
+	close $fd
+
+	# Read current label and remove dumpid from backup database
+	catch {inittape $tapedev $port $backupid $butcid} rc
+	return $rc
+}
+
+
+
+#
+# Start MAIN
+#
+
+send_user "[time l]\n"
+
+#
+# Check arguments
+#
+set Argerror 0
+if {[llength $argv]!=7} {
+	set Argerror 1
+} else {
+	if {[lindex $argv 5] != "noappend" && [lindex $argv 5] != "append"} {
+		set Argerror 1
+	}
+	if {[lindex $argv 6] != "eject" && [lindex $argv 6] != "noeject"} {
+		set Argerror 1
+	}
+}
+if {$Argerror} {
+	send_user "Usage: [lindex $argv 0] volumeset schedule port1 port2|'none' 'noappend'|'append' 'eject'|'noeject'\n"
+	exit 1
+}
+set Volumeset [lindex $argv 1]
+set Btype [lindex $argv 2]
+set Port1 [lindex $argv 3]
+set Port2 [lindex $argv 4]
+if {[lindex $argv 6] == "noeject"} {
+	set Ejectlast 0
+}
+if {[lindex $argv 5] == "append"} {
+	set Append 1
+}
+if {$Port2 == "none" && [lindex $argv 5] == "append"} {
+	send_user "Specifying port2 is required if appending dump\n"
+	exit 1
+}
+	
+send_user "[time s] Options:\n"
+send_user "[time s]    Dump Schedule is '$Btype'\n"
+send_user "[time s]    Main backup port is '$Port1'\n"
+if {$Port2 == "none"} {
+	send_user "[time s]    DumpIDs will *NOT* be recycled (no second port specified).\n"
+} else {
+	send_user "[time s]    DumpIDs will be recycled on port '$Port2'.\n"
+}
+if {$Ejectlast} {
+	send_user "[time s]    Last tape in dump will be ejected.\n"
+} else {
+	send_user "[time s]    Last tape in dump will *NOT* be ejected (next dump should be appended).\n"
+}
+if {$Append} {
+	send_user "[time s]    Dump *WILL* be appended to current tape in drive.\n"
+} else {
+	send_user "[time s]    Dump will not be appended.\n"
+}
+send_user "[time s] End options\n"
+
+#
+# Set $Port1dev to device name of $Port1 in tape config file
+#
+set rc [catch {set fd [open $Configpath r]}]
+if {$rc !=0} then {
+	send_user "[time s] Cannot open tape config file '$Configpath'\n"
+	send_user "[time s] Aborting backup\n"
+	exit 1
+}
+while {! [eof $fd]} {
+	gets $fd fdbuf
+	set rc [scan $fdbuf "%s %s %s %d" junk junk Port1dev port]
+	if {$rc == -1} break
+	if {$port == $Port1} break
+}
+if {[eof $fd]} {
+	send_user "[time s] Cannot find port number $Port1 in tape config file '$Configpath'\n"
+	send_user "[time s] Aborting backup\n"
+	exit 1
+}
+close $fd
+send_user "[time s] Tape device is $Port1dev\n"
+
+
+#
+# Make sure backup process is not already running
+#
+catch {exec ps ax | grep [lindex $argv 0] | grep $Volumeset | grep -v grep | wc -l} n
+regsub -all " " $n "" n
+if { $n > 1 } {
+	send_user "[time s] **ERROR** Aborting backup, previous backup process already running\n"
+	exit 1
+}
+
+
+#
+# Spawn backup process and ports
+#
+send_user "[time s] Starting backup and butc processes\n"
+if {$Version == "afs3.3"} {
+	set butc1pid [spawn $Butcpath -noautoquery -port $Port1]
+} else {
+	set butc1pid [spawn $Butcpath -port $Port1]
+}
+set butc1ID $spawn_id
+if { $Port2 != "none" } {
+	set butc2pid [spawn $Butcpath -port $Port2]
+	set butc2ID $spawn_id
+} else {
+	set butc2pid "none"
+	set butc2ID "none"
+}
+set backuppid [spawn $Backuppath]
+set backupID $spawn_id
+
+set timeout 3600
+send_user "[time s] Waiting for initial backup process prompt (timeout=$timeout) ...\n"
+expect {
+	-i $backupID -re ".*backup> " { }
+
+	-i $backupID -re ".*running unauthenticated.*" {
+		send_user "\n"
+		send_user "[time s] **ERROR** Aborting backup, cannot get tokens\n"
+		catch {exec kill $butc1pid}
+		if { $butc2pid != "none"} {
+			catch {exec kill $butc2pid}
+		}
+		catch {exec kill $backuppid}
+		exit 1
+
+	} -i $backupID -re ".*Ubik I/O error.*" {
+		send_user "\n"
+		send_user "[time s] **ERROR** Aborting backup, UBIK error\n"
+		catch {exec kill $butc1pid}
+		if { $butc2pid != "none"} {
+			catch {exec kill $butc2pid}
+		}
+		catch {exec kill $backuppid}
+		exit 1
+
+	} -i $backupID timeout {
+		send_user "[time s] **ERROR** Aborting backup, timeout\n"
+		catch {exec kill $butc1pid}
+		if { $butc2pid != "none"} {
+			catch {exec kill $butc2pid}
+		}
+		catch {exec kill $backuppid}
+		exit 1
+	}
+}
+send_user "\n"
+
+# Determine the volume prefix
+set Volsetprefix "${Volumeset}.[file tail ${Btype}]"
+
+#
+# Make sure there is a tape loaded in the tape drive
+#
+if {$Append} {
+	send_user "[time s] Assuming first tape is already loaded\n"
+	catch {gettapeinfo $Port2 $backupID $butc2ID} rc
+	if {$rc != 0} {
+		send_user "[time s] **ERROR** in getting current tape info for append, aborting backup\n"
+		catch {exec kill $butc1pid}
+		if { $butc2pid != "none"} {
+			catch {exec kill $butc2pid}
+		}
+		catch {exec kill $backuppid}
+		exit 1
+	}
+} else {
+	send_user "[time s] Making sure first tape is already loaded\n"
+	catch {nexttape $Port1dev $Port2 $backupID $butc2ID noeject} rc
+	if {$rc != 0} {
+		send_user "[time s] Aborting backup (first tape)\n"
+		exit 1
+	}
+}
+
+
+#
+# Start the backup
+#
+if {$Append} {
+	send_user "[time s] Dump command = 'dump $Volumeset $Btype -append -port $Port1'\n"
+	send -i $backupID "dump $Volumeset $Btype -append -port $Port1\n"
+} else {
+	send_user "[time s] Dump command = 'dump $Volumeset $Btype -port $Port1'\n"
+	send -i $backupID "dump $Volumeset $Btype -port $Port1\n"
+}
+send_user "[time s] Sending dump cmd to backup process\n"
+set timeout 43200
+send_user "[time s] Waiting for backup process prompt (timeout=$timeout) ...\n"
+expect {
+	-i $backupID -re ".*No volumes to dump\[^\r\n]*\r\n" {
+		send_user "[time s] **ERROR** Aborting backup, no volumes to dump\n"
+		catch {exec kill $butc1pid}
+		if { $butc2pid != "none"} {
+			catch {exec kill $butc2pid}
+		}
+		catch {exec kill $backuppid}
+		exit 1
+
+	} -i $backupID -re ".*backup> " {
+		send_user "\n"
+
+	} -i backupID timeout {
+		send_user "[time s] **ERROR** Aborting backup, timeout\n"
+		catch {exec kill $butc1pid}
+		if { $butc2pid != "none"} {
+			catch {exec kill $butc2pid}
+		}
+		catch {exec kill $backuppid}
+		exit 1
+	}
+}
+
+
+set timeout 3600
+send_user "[time s] Waiting for butc process to start task (timeout=$timeout) ...\n"
+expect {
+	-i $butc1ID -re ".*Task\[^\r\n]*DumpID (\[0-9]*)\[^\r\n]*Started\[^\r\n]*\r\n" {
+		if {! $Append} {
+			set ThisDumpID $expect_out(1,string)
+		}
+		send_user "[time s] DumpID for this backup is $ThisDumpID\n"
+	}
+
+	-i $butc1ID timeout {
+		send_user "[time s] **ERROR** Aborting backup, timeout\n"
+		catch {exec kill $butc1pid}
+		if { $butc2pid != "none"} {
+			catch {exec kill $butc2pid}
+		}
+		catch {exec kill $backuppid}
+		exit 1
+	}
+}
+
+
+#
+# Backup main loop
+#
+set timeout 72000
+send_user "[time s] Waiting for next action from butc process (timeout=$timeout) ...\n"
+if {$Append} {
+	set skipreclabel 1
+} else {
+	set skipreclabel 0
+}
+expect {
+
+	-i $butc1ID -re ".*OPERATOR ATTENTION.*Please put in tape\[^\r\n]*\r\n" {
+		send_user "[time s] Ejecting tape and trying next one in stacker\n"
+		if {! $skipreclabel} {
+			reclabel "${Volsetprefix}.$Tapeno"
+			incr Tapeno
+		} else {
+			set skipreclabel 0
+		}
+		catch {nexttape $Port1dev $Port2 $backupID $butc2ID eject} rc
+		if {$rc != 0} then {
+			send_user "[time s] Aborting backup (change tape)\n"
+		} else {
+			send_user "[time s] Sending <enter> to butc process\n"
+			send -i $butc1ID "\n"
+			expect -i $butc1ID -re ".*Thanks\[^\r\n]*\r\n"
+			send_user "[time s] Waiting for next action from butc process (timeout=$timeout) ...\n"
+			continue -expect
+		}
+
+	# Butc process reported normal termination of dump
+	} -i $butc1ID -re ".*Task.*Finished\[^\r\n]*\r\n" {
+		if {! $skipreclabel} {
+			reclabel "${Volsetprefix}.$Tapeno"
+			incr Tapeno
+		} else {
+			set skipreclabel 0
+		}
+		if {$Ejectlast} {
+			send_user "[time s] Backup has finished, ejecting last tape ...\n"
+			catch {nexttape $Port1dev $Port2 $backupID $butc2ID ejectlast} rc
+			if {$rc != 0} then {
+				send_user "[time s] Check last tape\n"
+			}
+			exec sleep 90
+		} else {
+			send_user "[time s] Backup has finished, *NOT* ejecting (just rewinding) last tape ...\n"
+			catch {exec mt -f $Port1dev rewind}
+		}
+
+	# Butc process reported on volumes that could not be dumped (reliable mode)
+	} -i $butc1ID -re ".*Please select action.*retry.*omit.*abort\[^\r\n]*\r\n" {
+		# Omit the volume
+		send -i $butc1ID "o\n"
+		send_user "[time s] Waiting for next action from butc process (timeout=$timeout) ...\n"
+		continue -expect
+
+	# Butc process reported current tape has not expired
+	# Note: this should not happen since all tapes are pre-initialized
+	} -i $butc1ID -re ".*ERROR: Current tape has not expired.*please try again\r\n" {
+		# Assume OPERATOR ATTENTION message will follow
+		set skipreclabel 1
+		reclabel "<unexpired>"
+		send_user "[time s] Waiting for OPERATOR ATTENTION msg from butc process (timeout=$timeout) ...\n"
+		continue -expect
+
+	# Butc process reported current tape does not have correct label
+	# Note: this should not happen since all tapes are pre-initialized
+	} -i $butc1ID -re ".*Tape label expected.*try again\r\n" {
+		# Assume OPERATOR ATTENTION message will follow
+		set skipreclabel 1
+		reclabel "<incorrect_label>"
+		send_user "[time s] Waiting for OPERATOR ATTENTION msg from butc process (timeout=$timeout) ...\n"
+		continue -expect
+		
+	# Butc process reported current tape is write protected
+	# Note: this should not happen since all tapes are pre-initialized
+	} -i $butc1ID -re ".*This tape .* is write protected, please load a writeable tape\r\n" {
+		# And assume OPERATOR ATTENTION message will follow
+		set skipreclabel 1
+		reclabel "<tape_error>"
+		send_user "[time s] Waiting for OPERATOR ATTENTION msg from butc process (timeout=$timeout) ...\n"
+		continue -expect
+
+	# Butc process could not create tape label
+        } -i $butc1ID -re ".*Cannot create label on this tape.*please load a writeable tape\r\n" {
+		# Assume OPERATOR ATTENTION message will follow
+		set skipreclabel 1
+		reclabel "<tape_error>"
+		send_user "[time s] Waiting for OPERATOR ATTENTION msg from butc process (timeout=$timeout) ...\n"
+		continue -expect
+
+	# Butc process could not open tape drive device
+	} -i $butc1ID -re ".*ERROR cannot open tape device.*correct the problem\[^\r\n]*\r\n" {
+		send_user "[time s] Aborting backup due to error in butc open of tape drive\n"
+
+	# Butc process detected Operator termination of dump
+	} -i $butc1ID -re ".*Task .* aborted by request\r\n" {
+		send_user "[time s] Aborting backup due to Operator request\n"
+
+	# Butc process died
+	} -i $butc1ID eof {
+		send_user "[time s] Aborting backup due to unexpected butc process termination\n"
+
+	-i $butc1ID timeout {
+		send_user "[time s] **ERROR** Aborting backup, timeout\n"
+	}
+
+	# Backup process detected operator abort
+	} -i $backupID -re ".*Job.*Aborted\[^\r\n]*\r\n" {
+		send_user "[time s] Aborting backup due to Operator termination of butc\n"
+
+	# Backup process detected abnormal termination of butc
+	} -i $backupID -re ".*no such task on port\[^\r\n]*\r\n" {
+		send_user "[time s] Aborting backup due to unexpected butc termination\n"
+
+	# Backup process detected failure of butc
+	} -i $backupID -re ".*Failed with errors\[^\r\n]*\r\n" {
+		send_user "[time s] Aborting backup due to failure of butc\n"
+
+	# Backup process detected internal error
+	} -i $backupID -re ".*StatusWatcher: internal error\[^\r\n]*\r\n" {
+		send_user "[time s] Aborting backup due to failure of butc\n"
+
+	# Backup process died
+	} -i $backupID eof {
+		send_user "[time s] Aborting backup due to unexpected backup process termination\n"
+	}
+
+}
+
+#
+# Removing butc processes
+#
+catch {exec kill $butc1pid}
+if { $butc2pid != "none"} {
+	catch {exec kill $butc2pid}
+}
+
+
+#
+# Record tape stacker summary
+#
+
+# Form the name of the logfile
+set Logname "$Logdir/[exec $Timepath $TimeFname].${ThisDumpID}.${Volumeset}"
+
+set logtodisk 1
+if { ! [file isdirectory $Logdir] } {
+	# Take a last ditch effort at creating the directory
+	set rc [catch {exec mkdir $Logdir}]
+	if {$rc != 0} {
+		send_user "[time s] **WARNING** Cannot open or create log directory '$Logdir'\n"
+		send_user "[time s] **WARNING** Logging will not be recorded on disk\n"
+		set logtodisk 0
+	}
+}
+if { $logtodisk } {
+	# Open the logfile for writing
+	send_user "[time s] Tape summary will be recorded in file '$Logname'\n"
+	if { [file exists $Logname] } {
+		send_user "[time s] **WARNING** '$Logname' already exists, it will be overwritten\n"
+	}
+	set rc [catch {set fdL [open $Logname w]}]
+	if {$rc != 0} then {
+		send_user "[time s] **WARNING** Cannot open log file '$Logname'\n"
+		send_user "[time s] **WARNING** Logging will not be recorded on disk\n"
+		set logtodisk 0
+	}
+}
+send_user "\n"
+send_user "[time s] =================================\n"
+send_user "[time s] Tape Summary:\n"
+send_user "[time s] $StackerN tape(s) used in this dump\n"
+for {set n 0} {$n < $StackerN} {incr n} {
+	send_user "[time s] Tape_[expr {$StackerN-$n}] $Stacker([expr {$StackerN-$n-1}])\n"
+	if {$logtodisk} {puts $fdL "Tape_[expr {$StackerN-$n}] $Stacker([expr {$StackerN-$n-1}])"}
+}
+send_user "[time s] =================================\n"
+send_user "\n"
+if { $logtodisk } {close $fdL}
+
+
+#
+# Remove old dumpids from backup database
+#
+set timeout 10800
+if {$DumpidN == 0} {
+	send_user "[time s] No obsolete dumpids to remove from backup db\n"
+} else {
+	send_user "[time s] Removing obsolete dumpids from backup db\n"
+	for {set n 0} {$n < $DumpidN} {incr n} {
+		send_user "[time s] Sending 'deletedump -dumpid $Dumpid($n)' to backup process\n"
+		# Send command to backup process
+		send -i $backupID "deletedump -dumpid $Dumpid($n)\n"
+		# Wait for prompt back (we don't care if it succeeds or not)
+		send_user "[time s] Waiting for backup process prompt (timeout=$timeout) ...\n"
+		expect -i $backupID -re ".*backup> "
+		send_user "\n"
+	}
+}
+
+
+#
+# Cleanup spawned processes
+#
+send_user "[time s] Removing backup process\n"
+send -i $backupID "quit\n"
+set timeout 30
+expect {
+	-i $backupID -re ".*\n" { }
+	-i $backupID eof { }
+	-i $backupID timeout { }
+}
+
+send_user "[time s] [lindex $argv 0] exiting\n"
+exit 0

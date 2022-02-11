@@ -1,0 +1,98 @@
+		    An index of the xdm directory
+			     7-Apr-1995
+
+The MIT X11 distributions (both Release 4 and 5) include the program
+"xdm" which provides a login screen for machines that run an X server
+on the console instead of the traditional getty login process.
+
+Many people have made modifications to the Release 5 xdm sources to
+make it fit into an AFS environment.  Before checking the supplied
+user-id and password against the local password file, the modified xdm
+tries to obtain authentication with AFS.  If successful, a PAG is
+created containing AFS tokens for the user.  If unsuccessful, the
+normal Unix password checking is tried and only an empty PAG is
+created.
+
+While Transarc provides a modified version of /bin/login, we are not
+able to supply a supported xdm program.  Instead, we've collected
+several versions of customer-contributed modifications and made them
+available in this directory.  Again, Transarc is unable to provide
+support for these sources.  The only documentation provided is this
+file along with whatever README files were provided by the
+contributors.
+
+Only sources have been provided by the contributors.  In order to
+compile these sources, you will need the rest of the X11R5
+environment.
+
+Since I will not be tracking the development efforts of those involved
+with these modifications, more recent copies of these sources may be
+available from the original locations.  This snapshot was taken on
+30-Apr-1993 with updates made to the Cornell and RPI directories on
+7-Apr-1995.
+
+The various subdirectories that are available are described below.
+
+Joseph Jackson
+AFS Product Support
+Transarc Corporation
+____________________________________________________________________
+
+Orig/
+    The original X11R5 sources, unpacked from the DEC Freeware CD-ROM
+
+Cornell/
+    Placed in the AFS-Contrib area on 2-Mar-1993 by:
+	Daniel E. Svitavsky
+	Materials Science Center
+	Cornell University
+	Ithaca, New York, USA
+	savage@msc.cornell.edu
+
+    Notes are included on exactly how to start it
+    The utility "xwrap" is included to facilitate usage under AIX
+
+    The code is based on the RPI changes (described in the next section),
+    however not all the non-AFS RPI changes are included.
+
+RPI/
+    Announced via Info-AFS on 9-Feb-1993 by:
+	Scanner (E. Luce)
+	ITS Network Systems Engineer
+	Rensselaer Polytechnic Institute
+	Troy, New York, USA
+	scanner@rpi.edu
+
+    Copied from /afs/rpi.edu/campus/session/xdm/2.0/distrib/src
+    Used at RPI on AIX 3.2 and possibly SunOS machines.
+
+    Changes for AFS include:
+    Calls ka_UserAuthenticateGeneral to obtain a token
+    Handles the fact that PAGS are recorded as the first two groups
+    Has Kerberos ticket file handling (and uses krb versions of AFS libs)
+
+    Non-AFS changes include:
+    Uses the standard syslog facility to record errors
+    Does something with a "message" and "additional message" field
+    Places core dumps in either / or /tmp, depending on a debug option
+    Minor additions to choose.c and dm.c to track down xdm errors
+    Additional error handling in session.c, socket.c, and streams.c
+
+    NB. A newer version is available at 
+	/afs/rpi.edu/campus/session/xdm/2.1/distrib/src
+
+BSC/
+    Announced via Info-AFS on 23-Feb-1993 by:
+	Robert MacKinnon
+	Unix Support
+	Bergen Environmental Sciences and Solution Centre
+	Bergen, Norway
+	robmack@bsc.no
+	47-5-544618
+
+    FTP'ed from ftp.bsc.no:/pub/Src/x11r5/mit/clients/xdm
+
+    This port doesn't handle the group issue and seems to be less
+    thorough than the RPI and Cornell ports.  The README.AFS says:
+	"Correct for AIX 3.2 (and RENO BSD) as it repairs for the
+	 change in AIX 3.2 from AIX 3.1 for BSD 4.4 networking"

@@ -1,0 +1,49 @@
+#
+# makefile for aklog under windows
+#
+
+OBJS=aklog.obj aklog_main.obj aklog_param.obj linked_list.obj krb_util.obj
+
+ZIPFILES=aklog.c aklog.h aklog_main.c aklog_param.c linked_list.c \
+	linked_list.h krb_util.c make.win
+ZIPFILE=aklog.zip
+
+# Set this to point at your Kerberos 5 build tree
+K5_DIR=..\krb5
+KRB524_DIR=$(K5_DIR)\krb524
+
+# Set this to point at where your AFS client is installed
+AFS_DIR="C:\Program Files\Transarc\AFS\AFSClient\PROGRAM"
+
+KRB5INCS=/I$(K5_DIR)\include /I$(K5_DIR)\include\krb5
+KRB524INCS=/I$(KRB524_DIR)
+AFSINCS=/I$(AFS_DIR)
+
+INCLUDES=$(KRB5INCS) $(AFSINCS) $(KRB524INCS)
+
+KRB5LIBS=/LIBPATH:$(K5_DIR)\lib krb5_32.lib comerr32.lib \
+	$(K5_DIR)\util\windows\getopt.obj
+AFSLIBS=/LIBPATH:$(AFS_DIR) libafstokens.lib libafsconf.lib
+KRB524LIBS=/LIBPATH:$(KRB524_DIR)\Release /LIBPATH:$(KRB524_DIR) krb524.lib 
+WINLIBS=user32.lib
+
+DEFINES=/DWINDOWS
+
+CC=cl /nologo
+CFLAGS=/Os /Zi /Od /W3 $(INCLUDES) $(DEFINES)
+
+aklog.exe: $(OBJS)
+	link /nologo /out:$@ $** $(KRB5LIBS) $(AFSLIBS) $(KRB524LIBS) $(WINLIBS)
+
+.c.obj:
+	$(CC) $(CFLAGS) /c $*.c
+
+clean:
+	del $(OBJS)
+
+# Make zip distribution
+zipfile: $(ZIPFILE)
+
+$(ZIPFILE): $(ZIPFILES)
+	rm -rf $(ZIPFILE)
+	zip -Dl $(ZIPFILE) $(ZIPFILES)

@@ -1,0 +1,17 @@
+percent-full PERCENT
+blocks-avail NUMBER
+
+server SERVERNAME {
+	percent-full PERCENT
+	blocks-avail NUMBER
+
+	disk DISKNAME {
+		percent-full PERCENT
+		blocks-avail NUMBER
+	}
+}
+
+server SERVERNAME
+
+0 <= PERCENT <= 100
+

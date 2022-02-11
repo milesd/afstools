@@ -1,0 +1,29 @@
+Mon:
+Tue:
+S date
+B dump sete /week1 1
+B dump seta /week1 3
+Wed:
+B dump setb /week1 1
+B dump setc /week1 3
+B dump seta /week1/wed1 0
+Thu:
+B dump setd /week1 3
+B dump guest /week1 1
+B dump setc /week1/thur1 0
+Fri:
+B dump seta /week1/fri1 3
+B dump setb /week1/fri1 0
+B dump setc /week1/fri1 2
+B dump setd /week1/fri1 3
+B dump sete /week1/fri1 3
+B dump guest /week1/fri1 1
+Sat:
+B dump seta /week1/sat1 1
+B dump setb /week1/sat1 3
+B dump setc /week1/sat1 1
+B dump setd /week1/sat1 3
+B dump sete /week1/sat1 1
+B dump guest /week1/sat1 3
+Sun:
+B quit

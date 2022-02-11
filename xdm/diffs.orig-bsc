@@ -1,0 +1,396 @@
+--- ../orig/Imakefile -------------------------------------------------
+1a2,12
+> 
+> #ifdef RsArchitecture
+> #STD_CPP_DEFINES = -Drs6000
+> #EXTRA_DEFINES = -Drs6000 -DMALLOC_0_RETURNS_NULL -DAFS_AUTH -DMDHACK
+> EXTRA_DEFINES = -DAFS_AUTH -DMDHACK
+> CDEBUGFLAGS = -g
+> XDMWRAPOBJS = Wrap.o Unwrap.o Wraphelp.o
+> XDMWRAPSRCS = Wrap.c Unwrap.c Wraphelp.c
+> #endif
+> 
+> XCOMM $XConsortium: Imakefile,v 1.58.1.1 92/12/17 20:08:19 gildea Exp $
+5c16,17
+< #define BuildChooser !SystemV
+---
+> /* #define BuildChooser !SystemV */
+> #define BuildChooser (HasSockets)
+26a39,42
+> #if (defined(AIXArchitecture) && (OSMajorVersion >= 3))
+> SYS_LIBRARIES = -ls -lbsd
+> #endif
+> 
+30,31c46,72
+< DEPLIBS = XawClientDepLibs $(DEPXAUTHLIB) $(DEPXDMCPLIB)
+< LOCAL_LIBRARIES = XawClientLibs $(XAUTHLIB) $(XDMCPLIB) $(RPCLIB)
+---
+> #if InSourceTree
+>         DEPLIBS = XawClientDepLibs $(DEPXAUTHLIB) $(DEPXDMCPLIB)
+> #else
+>         DEPLIBS = XawClientDepLibs
+> #endif
+> 
+> #ifdef RsArchitecture
+> LOCAL_LIBRARIES = XawClientLibs \
+> 		  /usr/afsws/lib/afs/libkauth.a \
+> 		  /usr/afsws/lib/libubik.a \
+> 		  /usr/afsws/lib/afs/libprot.a \
+> 		  /usr/afsws/lib/librx.a \
+> 		  /usr/afsws/lib/liblwp.a \
+> 		  /usr/afsws/lib/afs/libauth.a \
+> 		  /usr/afsws/lib/afs/libsys.a \
+> 		  /usr/afsws/lib/librxkad.a \
+> 		  /usr/afsws/lib/libdes.a \
+> 		  /usr/afsws/lib/afs/libcmd.a \
+> 		  /usr/afsws/lib/afs/libcom_err.a \
+> 		  /usr/afsws/lib/afs/util.a \
+> 		  /usr/afsws/lib/libdes.a \
+> 		  /usr/afsws/lib/librx.a \
+> 		  $(XAUTHLIB) $(XDMCPLIB) $(RPCLIB) -ls
+> #else
+> LOCAL_LIBRARIES = XawClientLibs \
+> 		  $(XAUTHLIB) $(XDMCPLIB) $(RPCLIB)
+> #endif
+35,36c76,77
+< 		  Login.c mitauth.c \
+< 		  genauth.c access.c choose.c $(XDMAUTHSRCS) $(RPCSRCS)
+---
+> 		  Login.c mitauth.c genauth.c access.c choose.c \
+> 		  $(XDMWRAPSRCS) $(XDMAUTHSRCS) $(RPCSRCS)
+40,41c81,82
+< 		  Login.o mitauth.o \
+< 		  genauth.o access.o choose.o $(XDMAUTHOBJS) $(RPCOBJS)
+---
+> 		  Login.o mitauth.o genauth.o access.o choose.o \
+> 		  $(XDMWRAPOBJS) $(XDMAUTHOBJS) $(RPCOBJS)
+47a89
+> #if InSourceTree
+49a92,95
+> #else
+>        DEPLIBS3 = XawClientDepLibs
+>           LIBS3 = XawClientLibs /lib/libXdmcp.a
+> #endif
+60a107
+> #ifdef RsArchitecture
+64a112,118
+> 		-DOSMINORVERSION=$(OSMINORVERSION) \
+> 		-I/usr/afsws/include
+> #else
+>         DEFINES = -DBINDIR=\"$(BINDIR)\" -DXDMDIR=\"$(XDMDIR)\" \
+> 		$(SIGNAL_DEFINES) $(XDMAUTH_DEFINES) $(RPC_DEFINES) $(PWD_DEFINES) \
+> 		ConnectionFlags \
+> 		-DOSMAJORVERSION=$(OSMAJORVERSION) \
+65a120
+> #endif
+87a143
+> 		  '-DDEF_XPOLICY="$(XDMDIR)/Xpolicy"' \
+100a157
+> SpecialObjectRule(policy.o, $(ICONFIGFILES), $(RES_DEFINES))
+
+--- ../orig/auth.c -------------------------------------------------
+68a69,75
+> #ifdef ibmrt
+> #undef	SIOCGIFCONF
+> #define	SIOCGIFCONF=OSIOCGIFCONF
+> #undef	SIOCGIFBRDADDR
+> #define	SIOCGIFBRDADDR=OSIOCGIFBRDADDR
+> #endif
+> 
+647a655,659
+> #ifdef ibmrt
+> #undef SIOCGIFCONF
+> #define SIOCGIFCONF OSIOCGIFCONF
+> #endif
+> 
+748a761,763
+> #if defined(AIXV32) || defined(ibmrt)
+> 	inetaddr->sin_len = sizeof(struct sockaddr_in);
+> #endif
+
+--- ../orig/chooser.c -------------------------------------------------
+91a92,98
+> #ifdef ibmrt
+> #undef	SIOCGIFCONF
+> #define	SIOCGIFCONF=OSIOCGIFCONF
+> #undef	SIOCGIFBRDADDR
+> #define	SIOCGIFBRDADDR=OSIOCGIFBRDADDR
+> #endif
+> 
+374a382,384
+> #if defined(AIXV32) || defined(ibmrt)
+>     addrlen = addr.sa_len = sizeof (struct sockaddr);
+> #else
+375a386
+> #endif
+479a491,494
+> #if defined(AIXV32) || defined(ibmrt)
+> 	    ((struct sockaddr_in *) &broad_addr)->sin_len =
+> 		sizeof(struct sockaddr_in);
+> #endif
+501a517,519
+> #if defined(AIXV32) || defined(ibmrt)
+> 	    in_addr.sin_len = sizeof(struct sockaddr_in);
+> #endif
+520a539,541
+> #if defined(AIXV32) || defined(ibmrt)
+> 	    in_addr.sin_len = sizeof(struct sockaddr_in);
+> #endif
+529a551,553
+> #if defined(AIXV32) || defined(ibmrt)
+> 	    in_addr.sin_len = sizeof(struct sockaddr_in);
+> #endif
+532a557,559
+> #if defined(AIXV32) || defined(ibmrt)
+> 	in_addr.sin_len = sizeof(struct sockaddr_in);
+> #endif
+615a643,645
+> #if defined(AIXV32) || defined(ibmrt)
+> 	    in_addr.sin_len = sizeof(struct sockaddr_in);
+> #endif
+
+--- ../orig/config/Xsession -------------------------------------------------
+1a2
+> # $XConsortium: Xsession,v 1.7 92/08/06 11:08:14 gildea Exp $
+3c4,13
+< exec > $HOME/.xsession-errors 2>&1
+---
+> # redirect errors to a file in user's home directory if we can
+> for errfile in "$HOME/.xsession-errors" "/tmp/xses-$USER"
+> do
+> 	if ( cp /dev/null "$errfile" 2> /dev/null )
+> 	then
+> 		chmod 600 "$errfile"
+> 		exec > "$errfile" 2>&1
+> 		break
+> 	fi
+> done
+
+--- ../orig/dm.c -------------------------------------------------
+693c693
+< #ifdef LOCK_EX
+---
+> #ifdef LOCK_EX_TEST_TEST_TEST	/* rbm */
+701c701
+< #else
+---
+> /* #else rbm */
+
+--- ../orig/dm.h -------------------------------------------------
+58a59
+> #ifndef NGROUPS_MAX /* rbm */
+61a63
+> #endif	/* rbm */
+284a287
+> extern char	*policy;
+
+--- ../orig/policy.c -------------------------------------------------
+25a26
+> #include <signal.h>
+34a36,39
+> #ifndef XPOLICY
+> #define XPOLICY DEF_XPOLICY
+> #endif
+> 
+121c126,144
+< 	sprintf (statusBuf, "Willing to manage");
+---
+>     {
+> 	FILE	*p;
+> 	char	buf[256];
+> #ifdef SIGCHLD
+> 	SIGVAL	(*chldHandler)();
+> #endif
+> 
+> 	sprintf (statusBuf, "Willing to manage"); /* FallBack resource */
+> #ifdef SIGCHLD
+> 	chldHandler = Signal (SIGCHLD, SIG_IGN); /* ignore, but save */
+> #endif
+> 	if((p = popen( policy, "r" )) != (FILE *)NULL)
+> 		if(fgets(buf,sizeof(buf),p) != (char *)NULL)
+> 			strncpy(statusBuf,buf,sizeof(buf));
+> 	pclose(p);
+> #ifdef SIGCHLD
+> 	(void) Signal (SIGCHLD, chldHandler); /* restore old handler */
+> #endif
+>     }
+
+--- ../orig/resource.c -------------------------------------------------
+44a45
+> char	*policy;
+104a106,108
+> #ifndef DEF_XPOLICY
+> #define DEF_XPOLICY	"/usr/lib/X11/Xpolicy"
+> #endif
+141a146,147
+> "policy",	"Policy",	DM_STRING,	&policy,
+> 				DEF_XPOLICY,
+
+--- ../orig/session.c -------------------------------------------------
+4c4
+<  * $XConsortium: session.c,v 1.55 91/09/19 16:25:56 keith Exp $
+---
+>  * $XConsortium: session.c,v 1.58 92/08/14 12:04:59 eswu Exp $
+31a32,34
+> #ifdef AIXV3
+> # include <usersec.h>
+> #endif
+37a41
+> extern char **setEnv();
+38a43,44
+> static Bool StartClient();
+> 
+189c195
+< 	if (StartClient (&verify, d, &clientPid, greet.password)) {
+---
+> 	if (StartClient (&verify, d, &clientPid, greet.name, greet.password)) {
+360,364c366,372
+< StartClient (verify, d, pidp, passwd)
+< struct verify_info	*verify;
+< struct display		*d;
+< int			*pidp;
+< char			*passwd;
+---
+> static Bool
+> StartClient (verify, d, pidp, name, passwd)
+>     struct verify_info	*verify;
+>     struct display	*d;
+>     int			*pidp;
+>     char		*name;
+>     char		*passwd;
+384d391
+< #ifdef NGROUPS_MAX
+385a393,406
+> 	/* Do system-dependent login setup here */
+> 
+> #ifdef AIXV3
+> 	/*
+> 	 * Set the user's credentials: uid, gid, groups,
+> 	 * audit classes, user limits, and umask.
+> 	 */
+> 	if (setpcred(name, NULL) == -1)
+> 	{
+> 	    LogError("can't start session, setpcred failed, errno=%d\n", errno);
+> 	    return (0);
+> 	}
+> #else /* AIXV3 */
+> #ifdef NGROUPS_MAX
+391a413,414
+> #endif /* AIXV3 */
+> 
+414,418c437,442
+< 		if (chdir (home) == -1) {
+< 			LogError ("No home directory %s for user %s, using /\n",
+< 				  home, getEnv (verify->userEnviron, "USER"));
+< 			chdir ("/");
+< 		}
+---
+> 	    if (chdir (home) == -1) {
+> 		LogError ("user \"%s\": no home directory \"%s\", using \"/\"\n",
+> 			  getEnv (verify->userEnviron, "USER"), home);
+> 		chdir ("/");
+> 		verify->userEnviron = setEnv(verify->userEnviron, "HOME", "/");
+> 	    }
+433c457,458
+< 	LogError ("can't start session for %d, fork failed\n", d->name);
+---
+> 	LogError ("can't start session for %d, fork failed, errno=%d\n",
+> 		  d->name, errno);
+547a573,575
+>     /* give /dev/null as stdin */
+>     (void) close (0);
+>     open ("/dev/null", 0);
+
+--- ../orig/socket.c -------------------------------------------------
+59a60,62
+> #if defined(AIXV32) || defined(ibmrt)
+>     sock_addr.sin_len = sizeof(struct sockaddr_in);
+> #endif
+
+--- ../orig/verify.c -------------------------------------------------
+3d2
+<  *
+34a34,52
+> #ifdef	AFS_AUTH
+> /* rbm  These two needed for rxgen output to work */
+> #include <afs/param.h>	/* rbm */
+> #include <afs/stds.h>	/* rbm */
+> #include <sys/types.h>	/* rbm */
+> #include <rx/xdr.h>	/* rbm */
+> 
+> #include <lock.h>	/* rbm */
+> #include <ubik.h>	/* rbm */
+> 
+> #include <afs/com_err.h>	/* rbm */
+> #include <afs/auth.h>	/* rbm */
+> #include <afs/cellconfig.h>	/* rbm */
+> #include <afs/cmd.h>	/* rbm */
+> #include <afs/kauth.h>	/* rbm */
+> #include <afs/kautils.h>	/* rbm */
+> #endif
+> 
+> 
+61a80,87
+> #if defined(AIX)	/* rbm - variables, usually in /etc/environment, which are needed */
+>     "LANG",		/* rbm */
+>     "LOCPATH",		/* rbm */
+>     "NLSPATH",		/* rbm */
+>     "KAUTH",		/* rbm */
+>     "TZ",		/* rbm */
+>     "ELMHOST",		/* rbm */
+> #endif			/* rbm */
+77a104
+> 	char		*reason;
+92a120,142
+> #ifdef	AFS_AUTH
+>         if (strcmp (greet->name, "root" )) {
+>            Debug ("Kerberos verify started\n");
+> #ifdef	MDHACK
+> 	   if(ka_UserAuthenticateGeneral(KA_USERAUTH_VERSION+KA_USERAUTH_DOSETPAG, p->pw_name,(char *)0, (char *)0, greet->password, 0, 0, 0, &reason)){
+> #else
+>            if(ka_UserAuthenticateLife(0, p->pw_name, "",0,greet->password,1,&reason)){
+> #endif /* MDHACK */
+>                 Debug ("Kerberos verify failed\n");
+>                 bzero(greet->password, strlen(greet->password));
+>                 return 0;
+>            }
+>         } else {
+>            Debug ("root verify started\n");
+>            if (strcmp (crypt (greet->password, p->pw_passwd), p->pw_passwd)) {
+>                 Debug ("root verify failed\n");
+>                 bzero(greet->password, strlen(greet->password));
+>                 return 0;
+>            }
+>         }
+>         Debug ("verify succeeded\n");
+> 	if (0)
+> #else  /* AFS_AUTH */
+93a144
+> #endif /* AFS_AUTH */
+99a151
+> 
+101c153
+< /*	bzero(greet->password, strlen(greet->password)); */
+---
+> 	bzero(greet->password, strlen(greet->password));
+161a214,215
+>     env = setEnv (env, "KAUTH", "afs"); /* md */
+>     env = setEnv (env, "AUTH", "unix"); /* md */
+
+--- ../orig/xdmcp.c -------------------------------------------------
+131a132,134
+> #if defined(AIXV32) || defined(ibmrt)
+>     addr.sin_len = sizeof(struct sockaddr_in);
+> #endif
+230a234,236
+> #if defined(AIXV32) || defined(ibmrt)
+> 	in_addr.sin_len = sizeof(struct sockaddr_in);
+> #endif
+458a465,467
+> #if defined(AIXV32) || defined(ibmrt)
+> 		    in_addr.sin_len = sizeof(struct sockaddr_in);
+> #endif
+474a484,486
+> #if defined(AIXV32) || defined(ibmrt)
+> 		    un_addr.sun_len = sizeof(struct sockaddr_un);
+> #endif

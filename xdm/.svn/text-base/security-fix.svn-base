@@ -1,0 +1,9 @@
+28-Apr-1995
+
+The versions of XDM found in the RPI and Cornell directories have closed
+the security hole which allows users to gain root access using certain
+AFS accounts.
+
+Joe Jackson,
+AFS Product Engineer,
+Transarc Corp.

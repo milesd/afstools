@@ -1,0 +1,221 @@
+#!/usr/local/bin/perl
+
+# pckg - generate a package description of a filesystem tree
+#
+# requires Perl 4.x (possibly 4.10 or greater)
+#
+# usage:
+#	pckg [directory]
+#
+# local andrew.cmu.edu caveats:
+#
+#	We have the convention of an OS tree, which is an image
+#	of the vendor supplied OS from / on down. It resides on
+#	AFS, and via package we can selectively link or copy
+#	files across. This script is designed to create a complete
+#	package description for an OS tree, which can then be edited
+#	down for local purposes.
+#
+#	Here, we mount OS trees as
+#
+#	/afs/andrew.cmu.edu/@sys/os
+#
+#	pckg will attempt to discover where the root of the OS tree that you
+#	point it at is. If you do not use .../os, you will need to modify how 
+#	it pulls apart $ARGV[0] to get it right for your purposes. If it does
+#	not think you've pointed it at an OS tree, it will just generate. This
+#	is useful for creating package descriptions for /dev ala
+#
+#	pckg /dev
+#
+#	We also have the convention of the mpp macro ${machine} which will
+#	resolve to the start of the appropriate OS tree. Again, you may
+#	want to change it for local use. Another convention is that we
+#	tend to map most ownerships down to root/wheel. If pckg cannot
+#	figure out who owns the file (in the case that some vendor shipped
+#	things owned by some bizzare userid), it will render the user down
+#	to root and groups down to wheel. This may not suit all, but is
+#	easy to change in the code.
+#
+#	Obplug: please look around /afs/andrew.cmu.edu/wsadmin/lib to see how
+#	we do things after six years of dealing with package. It may provide
+#	some ideas. wsadmin/public/src/public.proto is used by mpp (ignore
+#	the public.@sys files)
+#
+# general notes:
+#	since package cannot handle hard links, pckg will turn them into
+#	symbolic ones on the fly.
+
+# TODO
+#	pretty output? mondo difficult in finite horizontal space
+#	lookup table of type/owner/group/perm for ${magicmode}
+#	be able to specify a trim table so /usr/man isn't traversed, etc.
+
+# force flushes
+select(STDOUT);
+$| = 1;
+
+($os_tree, $start_dir) = $ARGV[0] =~ /(.*os)(.*$)/;
+
+if (! defined $os_tree) {
+	$os_tree = "";
+	$start_dir = $ARGV[0];
+}
+
+&traverse($start_dir);
+
+sub traverse {
+	local($dir)=@_;
+	local($d);
+	local(%inoar) = ();
+	local(@dircache) = ();
+
+	$rdir= $os_tree . $dir;
+
+	opendir(DIR, $rdir);
+	local(@dir) = readdir(DIR);
+	closedir(DIR);
+
+	foreach $d (sort @dir) {
+		next if ($d eq "." || $d eq "..");
+
+		$file = "$dir/$d";
+		$rfile = "$os_tree$file";
+
+		($mydev, $ino, $mode, $nlink, $uid, $gid, $rdev, $size,
+			$atime, $mtime,	$ctime, $blksize, $blocks) 
+			= lstat($rfile);
+
+		($names{$uid}) = getpwuid($uid) if ! defined $names{$uid};
+		$oname = $names{$uid};
+		($groups{$gid}) = getgrgid($gid) if ! defined $groups{$gid};
+		$gname = $groups{$gid};
+
+		$mode = $mode & 0007777;
+
+		# just in case, handle unknown users/groups
+		$oname = "root" if ($oname eq "");
+
+		#or common translations
+		$gname = "wheel" if ($gname eq "" || $gname eq "staff");
+
+		# symlinks
+		if (-l _)
+		{
+			$link = readlink($rfile);
+
+			@linkar = split(/\//, $link);
+
+			# don't do anything with an absolute link
+			if ($linkar[0] ne "") {
+				$up = 0;
+				# rip off "." and ".." counting ".."s in $up
+				while (1) {
+					# link to ./something - rip off ./
+					if ($linkar[0] eq ".") {
+						shift(@linkar);
+						next;
+					}
+					if ($linkar[0] eq "..") {
+						shift(@linkar);
+						$up++;
+						next;
+					}
+					#drop out when we have no .|..
+					last;
+				}
+				
+				@dirar = split(/\//, $dir);
+				while ($up--) {
+					#rip from bottom this time
+					pop(@dirar);
+				}
+
+				$link = join('/', @dirar, @linkar);
+				if ($#dirar == -1) {
+					#link went above /. odd, but legal
+					$link = "/$link";
+				}
+			}
+			printf("LA\t%s\t\t%s", $file, $link);
+			printf("\t%s %s %o\n", $oname, $gname, $mode);
+			next;
+		}
+
+		# device entry
+		if (-b _ || -c _) {
+			# some systems use longwords - detect
+			if ($rdev & 0xffff0000) {
+				$major_dev = ($rdev >> 16) & 0x0000ffff;
+				$minor_dev = ($rdev) & 0x0000ffff;
+			} else {
+				$major_dev = ($rdev >> 8) & 0x000000ff;
+				$minor_dev = ($rdev) & 0x000000ff;
+			}
+
+			if (-b _) {
+				print("B\t");
+			} else {
+				print("C\t");
+			}
+
+			printf("%s\t%d\t%d\t%s %s %o\n", $rfile, 
+						$major_dev, $minor_dev, 
+						 $oname, $gname, $mode);
+			next;
+		}
+
+		# make hard links into symbolic links 
+		# (package can't do hard links - sigh)
+		if (defined $inoar{$ino}) {
+			$inoar{$ino} = join('\\', $inoar{$ino},
+				join(':', $file, $oname, $gname, $mode));
+			next;
+		}
+
+		# cache directory entries do we don't get huge %inoar wastage
+		if (-d _) 
+		{
+			push(@dircache, join('\\', $file, $oname, 
+						   $gname, $mode));
+			next;
+		}
+		
+		# has hard links to it
+		if ($nlink > 1) {
+			$inoar{$ino} = $file;
+		}
+
+		# normal files
+		if (-f _)
+		{
+			printf("F\t%s\t\t%s", $file, '${machine}');
+			printf("\t%s %s %o\n", $oname, $gname, $mode); 
+			next;
+		} 
+	}
+
+	# emit hard link translations
+	for (sort values %inoar) {
+		($prime, @sub) = split(/\\/);
+		for (sort @sub) {
+			($file, $oname, $gname, $mode) = split(/:/);
+			printf("LA\t%s\t\t%s\t%s %s %o\n", $file, 
+				$prime, $oname, $gname, $mode);
+		}
+	}
+
+	# clear inode array
+	%inoar = ();
+
+	# now traverse directories
+	for (@dircache) {
+		($file, $oname, $gname, $mode) = split(/\\/);
+		printf("DR\t%s\t\t\t\t%s %s %o\n",$file,$oname,$gname,$mode);
+		&traverse($file);
+	}
+
+	# clear directory cache
+	@dircache = ();
+}
+

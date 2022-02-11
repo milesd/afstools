@@ -1,0 +1,39 @@
+.TH "ucsdb" 8 "2 February 1995"
+.SH NAME
+ucsdb \- update CellServDB of an AFS client machine
+.SH SYNOPSIS
+ucsdb [-nmul] <local CellServDB> <master CellServDB> <extension list>
+.SH DESCRIPTION
+The program takes the central CellServDB (maintained by Transarc)
+and possibly an own file of local extensions and creates a combined list
+of their entries. If an entry is both in the local extensions file
+and in the master file, an error message is written to stderr.
+If these entries contain conflicting information the local extensions
+file takes precedence. A conflict is reported in an error message to
+stderr.
+
+The program reads the local CellServDB (if it exists) and compares it
+to the previously created list. In the case of changed or new entries
+a new CellServDB is written and the changed information is communicated
+to the cache manager via "fs newcell" calls.
+.SH OPTIONS
+.br
+-n	no action is performed
+.br
+-m	missing cells are mounted into the AFS tree
+.br
+-u	mountpoints of vanished cells are removed from the AFS tree
+.br
+-l	use -localauth for volume operations
+.SH FILES
+.br
+/usr/vice/etc/CellServDB
+.br
+/usr/vice/etc/ExtensionList
+.br
+/afs/transarc.com/service/etc/CellServDB.export
+.SH AUTHOR
+Tobias Schaefer, 1995
+.SH BUGS
+.br
+Will exit, if local CellServDB file does not exist.

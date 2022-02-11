@@ -1,0 +1,339 @@
+From: David Meleedy <dmm@worf.harvard.edu>
+To: Manavendra_Thakur@NeXT.COM (Manavendra Thakur)
+Cc: Marybeth_Schultz@transarc.com
+Subject: Re: X11R5 xdm patches for Suns?
+Date: Wed, 21 Apr 1993 14:31:42 -0400
+
+
+Hello there... here are two patches that should be used on xdm to
+authenticate for afs...  The first patch comes from:
+
+From: Alan Judge <amjudge@swift.cs.tcd.ie>
+
+He says this:
+
+"A while ago I posted a question about AFS support in xdm.  I got a
+number of helpful replies, but no ready made solution for X11R5.
+
+I finally got around to hacking in support yesterday.  It works, but
+doesn't do everything that I would like, like printing the error
+returned by UserAuthenticate to the screen (mainly because I didn't
+want to change much of the xdm code).
+
+Without any programming level documents, I'm still not exactly sure
+that I am doing the right things with PAGs, particularly in passing
+them on to the client and removing them from xdm itself.  Since I
+don't particularly want xdm, or some other user, to end up with a
+user's token, I would appreciate it if someone at transarc would cast
+their eye over the patch.  If there is a security problem, let me know.
+--
+Alan
+"
+
+The second patch was written by me, and it fixes a major problem with
+Alan's patch.  Namely the group id number (gid) would be set to one of
+the PAG numbers which were set to two very high values.  My fix simply
+looks up the users gid number in the password file, and then sets the
+running program to that gid number.
+
+
+patch 1:
+
+
+
+*** xdm/Imakefile       Thu Aug 22 22:04:37 1991
+--- xdm-afs/Imakefile   Sun Jan 12 17:10:08 1992
+***************
+*** 24,34 ****
+  #endif
+  #endif
+
+     XDMCONFIGDIR = XdmConfigurationSubdirectory
+          SUBDIRS = $(XDMCONFIGDIR)
+
+  DEPLIBS = XawClientDepLibs $(DEPXAUTHLIB) $(DEPXDMCPLIB)
+! LOCAL_LIBRARIES = XawClientLibs $(XAUTHLIB) $(XDMCPLIB) $(RPCLIB)
+            SRCS1 = auth.c daemon.c server.c dpylist.c dm.c error.c file.c \
+                 greet.c netaddr.c reset.c resource.c protodpy.c policy.c \
+                 session.c socket.c streams.c util.c verify.c xdmcp.c \
+--- 24,41 ----
+  #endif
+  #endif
+
++ AFSLIBDIR = /usr/afsws/lib
++ AFSLIBS = -L$(AFSLIBDIR) -L$(AFSLIBDIR)/afs -lkauth -lprot -lubik \
++              -lauth -lrxkad -lsys -ldes -lrx -llwp -lcmd -lcom_err \
++              $(AFSLIBDIR)/afs/util.a
++
++ INCLUDES = -I/usr/afsws/include
++
+     XDMCONFIGDIR = XdmConfigurationSubdirectory
+          SUBDIRS = $(XDMCONFIGDIR)
+
+  DEPLIBS = XawClientDepLibs $(DEPXAUTHLIB) $(DEPXDMCPLIB)
+! LOCAL_LIBRARIES = XawClientLibs $(XAUTHLIB) $(XDMCPLIB) $(RPCLIB) $(AFSLIBS)
+            SRCS1 = auth.c daemon.c server.c dpylist.c dm.c error.c file.c \
+                 greet.c netaddr.c reset.c resource.c protodpy.c policy.c \
+                 session.c socket.c streams.c util.c verify.c xdmcp.c \
+***************
+*** 62,68 ****
+               $(SIGNAL_DEFINES) $(XDMAUTH_DEFINES) $(RPC_DEFINES) $(PWD_DEFIN
+ES) \
+               ConnectionFlags \
+               -DOSMAJORVERSION=$(OSMAJORVERSION) \
+!              -DOSMINORVERSION=$(OSMINORVERSION)
+
+  XCOMM
+  XCOMM Special definitions for compiling default resources; these parameters
+--- 69,76 ----
+               $(SIGNAL_DEFINES) $(XDMAUTH_DEFINES) $(RPC_DEFINES) $(PWD_DEFIN
+ES) \
+               ConnectionFlags \
+               -DOSMAJORVERSION=$(OSMAJORVERSION) \
+!              -DOSMINORVERSION=$(OSMINORVERSION) \
+!              -DAFS
+
+  XCOMM
+  XCOMM Special definitions for compiling default resources; these parameters
+*** xdm/verify.c        Fri Jul 19 03:23:36 1991
+--- xdm-afs/verify.c    Sun Jan 12 18:57:38 1992
+***************
+*** 22,27 ****
+--- 22,30 ----
+   * verify.c
+   *
+   * typical unix verification routine.
++  *
++  * Modified by AJ to add AFS authentication.
++  * ALL changes are inside #ifdef AFS
+   */
+
+  # include     "dm.h"
+***************
+*** 36,41 ****
+--- 39,48 ----
+  char *getenv();
+  #endif
+
++ #ifdef AFS
++ #include <afs/kautils.h>
++ #endif
++
+  struct passwd joeblow = {
+        "Nobody", "***************"
+  };
+***************
+*** 75,85 ****
+        char          **userEnv (), **systemEnv (), **parseArgs ();
+        char          *shell, *home;
+        char          **argv;
+
+        Debug ("Verify %s ...\n", greet->name);
+        p = getpwnam (greet->name);
+        if (!p || strlen (greet->name) == 0)
+!              p = &joeblow;
+  #ifdef USESHADOW
+        sp = getspnam(greet->name);
+        if (sp == NULL) {
+--- 82,120 ----
+        char          **userEnv (), **systemEnv (), **parseArgs ();
+        char          *shell, *home;
+        char          **argv;
++ #ifdef AFS
++       int           dontuseafs = 0;
++       /*
++        * We don't use AFS if the user doesn't exist in the local password fil
+e.
++        */
++       char          *reason;
++ #endif
+
+        Debug ("Verify %s ...\n", greet->name);
+        p = getpwnam (greet->name);
+        if (!p || strlen (greet->name) == 0)
+! #ifdef AFS
+!           { p = &joeblow; dontuseafs = 1; }
+! #else
+!           p = &joeblow;
+! #endif
+!
+! #ifdef AFS
+!       /*
+!        * Now.  If all is well, we try using AFS to authenticate the user.
+!        */
+!       if (ka_UserAuthenticateGeneral(KA_USERAUTH_VERSION + KA_USERAUTH_DOSETP
+AG,
+!                                   greet->name,
+!                                   (char *) 0,
+!                                   (char *) 0,
+!                                   greet->password,
+!                                   0,
+!                                   0, 0,
+!                                   &reason) != 0) {
+!           /* Failed */
+!           Debug("AFS Verify failed: %s\n", reason);
+!           /* Fall through and try the old system. */
+! #endif
+  #ifdef USESHADOW
+        sp = getspnam(greet->name);
+        if (sp == NULL) {
+***************
+*** 97,102 ****
+--- 132,140 ----
+               bzero(greet->password, strlen(greet->password));
+               return 0;
+        }
++ #ifdef AFS
++       }
++ #endif
+        Debug ("verify succeeded\n");
+  /*    bzero(greet->password, strlen(greet->password)); */
+        verify->uid = p->pw_uid;
+***************
+*** 123,128 ****
+--- 161,170 ----
+        Debug ("system environment:\n");
+        printEnv (verify->systemEnviron);
+        Debug ("end of environments\n");
++ #ifdef AFS
++       /* Make sure that xdm doesn't end up with token. */
++       setpag();
++ #endif
+        return 1;
+  }
+
+***************
+*** 209,215 ****
+--- 251,276 ----
+        struct group   *g;
+        int           i;
+
++ #ifdef AFS
++       /*
++        * AFS's PAG is stored as the first two elements of the groups
++        * array.  Save these for the client.
++        */
++       int tmpg[NGROUPS_MAX];
++       int tmpng;
++ #endif
+        ngroups = 0;
++
++ #ifdef AFS
++       tmpng = getgroups(NGROUPS_MAX, tmpg);
++       if (tmpng < 2)
++           LogError("Couldn't get PAG from groups.\n");
++       else {
++           ngroups = 2;
++           verify->groups[0] = tmpg[0];
++           verify->groups[1] = tmpg[1];
++       }
++ #endif
+        verify->groups[ngroups++] = gid;
+        setgrent ();
+        /* SUPPRESS 560 */
+
+
+
+
+
+patch 2:
+
+
+
+
+
+
+
+*** xdm/session.c       Wed Mar 10 15:20:54 1993
+--- xdm-afs/session.c   Thu Mar 11 12:03:21 1993
+***************
+*** 29,34 ****
+--- 29,36 ----
+  # include <errno.h>
+  # include <stdio.h>
+  # include <ctype.h>
++ # include <pwd.h>
++ # include <grp.h>
+  #ifdef AIXV3
+  # include <usersec.h>
+  #endif
+***************
+*** 344,349 ****
+--- 346,353 ----
+  SessionExit (d, status, removeAuth)
+      struct display  *d;
+  {
++       register struct passwd *p;
++
+      /* make sure the server gets reset after the session is over */
+      if (d->serverPid >= 2 && d->resetSignal)
+        kill (d->serverPid, d->resetSignal);
+***************
+*** 352,358 ****
+      if (removeAuth)
+      {
+  #ifdef NGROUPS_MAX
+!       setgid (verify.groups[0]);
+  #else
+        setgid (verify.gid);
+  #endif
+--- 356,370 ----
+      if (removeAuth)
+      {
+  #ifdef NGROUPS_MAX
+!
+! /* CFA hack to make sure the group id is correct when xdm fires up a user */
+! /* David M. Meleedy - 3/10/93        dmm@head-cfa.harvard.edu           */ /
+!
+!       p = getpwnam(greet.name);
+!       setgid(p->pw_gid);
+!       endpwent();
+!
+! /* end of hack */
+  #else
+        setgid (verify.gid);
+  #endif
+***************
+*** 371,376 ****
+--- 383,389 ----
+      char             *name;
+      char             *passwd;
+  {
++     register struct passwd *p;
+      char      **f, *home, *getEnv ();
+      char      *failsafeArgv[2];
+      int       pid;
+***************
+*** 404,410 ****
+        }
+  #else /* AIXV3 */
+  #ifdef NGROUPS_MAX
+!       setgid (verify->groups[0]);
+        setgroups (verify->ngroups, verify->groups);
+  #else
+        setgid (verify->gid);
+--- 417,432 ----
+        }
+  #else /* AIXV3 */
+  #ifdef NGROUPS_MAX
+!
+! /* CFA hack to make sure the group id is correct when xdm fires up a user */
+! /* David M. Meleedy - 3/10/93        dmm@head-cfa.harvard.edu           */ /
+!
+!       p = getpwnam(greet.name);
+!       setgid(p->pw_gid);
+!       endpwent();
+!
+! /* end of hack */
+!
+        setgroups (verify->ngroups, verify->groups);
+  #else
+        setgid (verify->gid);
+
+
+========
+David Meleedy                          Smithsonian Astrophysical Observatory
+meleedy@cfa.harvard.edu                60 Garden Street, MS 70
+Phone: 617 495 7252                    Cambridge, MA  02138  USA
+
+

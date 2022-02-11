@@ -1,0 +1,128 @@
+#
+# Change this to point to wherever you have AFS installed
+#
+LOCAL = /usr/local
+
+#
+# AFS 3.3 requires the new -laudit library, remove -laudit for 3.2
+#
+AFSLIBS = -lvolser -lvldb -lubik -lauth -lsys -lcmd -lrxkad -ldes -lrx -llwp -laudit\
+	  -lcom_err -lkauth ${LOCAL}/lib/afs/util.a
+LIBS = -L${LOCAL}/lib -L${LOCAL}/lib/afs ${AFSLIBS} ${YACCLIBS} -ll ${EXTRALIBS}
+
+INCLUDES = -I${LOCAL}/include
+DEFINES = $(AGENT_DEFINES) ${EXTRADEFINES} ${OPTIONS}
+
+#
+# Where balance will be installed
+#
+DESTDIR = /usr/local
+
+#
+# Lex/Yacc options
+#
+
+# Uncomment if you want flex
+# LEX = flex
+
+# Uncomment if you want bison
+# YACC = bison -yd
+# Comment if you use bison
+YACCLIBS = -ly
+YFLAGS = -d
+
+###
+# Here begins the only architecture specific work, choosing a compiler.
+# Choose the section appropriate to your system and modify, if neccesary.
+# If your system does not appear here, try to use standard cc, or gcc
+# as per the default section. See balance.doc for requirements. The explicitly
+# listed compiler options here have been seen to work.
+###
+
+#
+# Sun 4 (sun4c_41x, sun4m_41x, should work for any Sparc)
+#
+# The unbundled Sun C acc compiler works
+#
+# CC = gcc
+# CC = acc
+
+#
+# Solaris (sun4c_54, sun4m_54, sun4x_55)
+#
+# The unbundled SunPro cc compiler works
+# Transarc libraries need networking and some BSD compatibility.
+#
+# CC = /opt/SUNWspro/bin/cc
+# CC = gcc
+# EXTRALIBS = -lsocket -lnsl -lc /usr/ucblib/libucb.a
+#
+
+#
+# Pmax (pmax_ul4)
+#
+# The Ultrix 4.2 cc cannot handle prototypes of function pointers, so
+# you must use gcc. Ultrix 4.3 and above may be able to use cc again?
+#
+# CC = gcc
+
+#
+# HP (hp700_ux90)
+#
+# Need _HPUX_SOURCE for Transarc headers
+# Need -lBSD for Transarc libraries
+#
+# Note that for hp700_ux90, gcc does not need _HPUX_SOURCE
+#
+# EXTRADEFINES = -D_HPUX_SOURCE
+# EXTRALIBS = -lBSD
+# CC = c89
+# CC = cc -Aa
+# CC = gcc
+
+#
+# Default
+#
+# GCC is a reasonable ANSI compiler. Try it if your cc fails.
+#
+# CC = gcc
+CC = cc
+
+#
+# Turn on/off compilation of various agents.
+#
+# byweekuse - this agent requires a source patch to AFS versions
+#		3.3 and before. AFS 3.4 has this patch integrated.
+#
+# Do not use BYWEEKUSE unless you have this patch or are running
+# AFS 3.4!
+#
+AGENT_DEFINES = -DBYSIZE=1 -DBYNUMBER=1 -DBYWEEKUSE=0 -DBYOVERDRAFT=1
+OPTIONS = -DNEW_MATH=1
+# Optimization levels ...
+# OPT = -g
+OPT = -O
+
+SRCS = balance.c afscall.c balutil.c xmalloc.c config-yacc.c config-lex.c\
+       match.c hash.c mygetopt.c agent.c agent_bysize.c agent_bynumber.c \
+       agent_byweekuse.c agent_byoverdraft.c state.c
+OBJS = balance.o afscall.o balutil.o xmalloc.o config-yacc.o config-lex.o\
+       match.o hash.o mygetopt.o agent.o agent_bysize.o agent_bynumber.o \
+       agent_byweekuse.o agent_byoverdraft.o state.o
+
+PROGRAM = balance
+
+CFLAGS = ${OPT} ${INCLUDES} ${DEFINES}
+
+all: ${PROGRAM}
+
+${PROGRAM}: ${OBJS}
+	$(CC) ${OBJS} -o $@ ${LIBS}
+
+clean:
+	rm -f *.o ${PROGRAM}
+
+install: ${PROGRAM}
+	-mkdir $(DESTDIR)
+	-mkdir $(DESTDIR)/bin
+	install -c -s ${PROGRAM} ${DESTDIR}/bin

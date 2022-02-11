@@ -1,0 +1,25 @@
+/* config.h.in.  Generated automatically from configure.in by autoheader.  */
+
+/* AFS client program for volume server and volume location server */
+#undef VOS
+
+/* AFS client program for file server */
+#undef FS
+
+/* AFS cell name of workstation*/
+#undef CELLNAME
+
+/* Define if you have the mkdir function.  */
+#undef HAVE_MKDIR
+
+/* Define if you have the rmdir function.  */
+#undef HAVE_RMDIR
+
+/* Define if you have the <netdb.h> header file.  */
+#undef HAVE_NETDB_H
+
+/* Define if you have the <stdio.h> header file.  */
+#undef HAVE_STDIO_H
+
+/* Define if you have the <sys/stat.h> header file.  */
+#undef HAVE_SYS_STAT_H

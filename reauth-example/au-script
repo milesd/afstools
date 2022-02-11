@@ -1,0 +1,16 @@
+# This script can be used to start various processes in a pagsh. Any
+# process started here will have PAG-based tokens, therefore not
+# susceptible to root users authenticating or unlogging. 
+
+pagsh << ==EOF==
+  echo -n "GROUPS: "
+  groups
+  echo -n "BEFORE KLOG "
+  /usr/afsws/bin/tokens
+  cat /tmp/.pwd | /usr/afsws/bin/klog afs_root -pipe -lifetime 00:10:00
+  echo -n "AFTER KLOG: "
+  /usr/afsws/bin/tokens
+  echo "STARTING DAEMON testopen"
+  ./testopen &
+  sh reauthd    # Or use "reauth 900 afs_root `cat /tmp/.pwd`"
+==EOF==
